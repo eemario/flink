@@ -34,7 +34,9 @@ import org.apache.flink.table.planner.plan.nodes.exec.batch.BatchExecNode;
 import org.apache.flink.table.planner.plan.nodes.exec.utils.ExecNodeUtil;
 import org.apache.flink.table.runtime.operators.runtimefilter.GlobalRuntimeFilterBuilderOperator;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
+import org.apache.flink.table.runtime.typeutils.RowDataSerializer;
 import org.apache.flink.table.types.logical.LogicalType;
+import org.apache.flink.table.types.logical.RowType;
 
 import java.util.List;
 
@@ -42,14 +44,20 @@ import java.util.List;
 public class BatchExecGlobalRuntimeFilterBuilder extends ExecNodeBase<RowData>
         implements BatchExecNode<RowData> {
 
+    private final int estimatedRowCount;
     private final int maxRowCount;
+    private final int maxInFilterRowCount;
+    private final RowType filterRowType;
 
     public BatchExecGlobalRuntimeFilterBuilder(
             ReadableConfig tableConfig,
             List<InputProperty> inputProperties,
             LogicalType outputType,
             String description,
-            int maxRowCount) {
+            int estimatedRowCount,
+            int maxRowCount,
+            int maxInFilterRowCount,
+            RowType filterRowType) {
         super(
                 ExecNodeContext.newNodeId(),
                 ExecNodeContext.newContext(BatchExecLocalRuntimeFilterBuilder.class),
@@ -58,7 +66,10 @@ public class BatchExecGlobalRuntimeFilterBuilder extends ExecNodeBase<RowData>
                 inputProperties,
                 outputType,
                 description);
+        this.estimatedRowCount = estimatedRowCount;
         this.maxRowCount = maxRowCount;
+        this.maxInFilterRowCount = maxInFilterRowCount;
+        this.filterRowType = filterRowType;
     }
 
     @Override
@@ -68,9 +79,15 @@ public class BatchExecGlobalRuntimeFilterBuilder extends ExecNodeBase<RowData>
         ExecEdge inputEdge = getInputEdges().get(0);
         Transformation<RowData> inputTransform =
                 (Transformation<RowData>) inputEdge.translateToPlan(planner);
+        RowDataSerializer rowDataSerializer = new RowDataSerializer(filterRowType);
 
         StreamOperatorFactory<RowData> factory =
-                SimpleOperatorFactory.of(new GlobalRuntimeFilterBuilderOperator(maxRowCount));
+                SimpleOperatorFactory.of(
+                        new GlobalRuntimeFilterBuilderOperator(
+                                estimatedRowCount,
+                                maxRowCount,
+                                maxInFilterRowCount,
+                                rowDataSerializer));
 
         return ExecNodeUtil.createOneInputTransformation(
                 inputTransform,
