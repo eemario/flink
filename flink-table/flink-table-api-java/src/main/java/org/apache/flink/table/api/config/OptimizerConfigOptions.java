@@ -195,6 +195,16 @@ public class OptimizerConfigOptions {
                                     "Max data volume threshold of the runtime filter build side. "
                                             + "Estimated data volume needs to be under this value to try to inject runtime filter.");
 
+    @Documentation.TableOption(execMode = Documentation.ExecMode.BATCH)
+    public static final ConfigOption<MemorySize>
+            TABLE_OPTIMIZER_RUNTIME_FILTER_MAX_IN_FILTER_BUILD_DATA_SIZE =
+                    key("table.optimizer.runtime-filter.max-in-filter-build-data-size")
+                            .memoryType()
+                            .defaultValue(MemorySize.parse("1m"))
+                            .withDescription(
+                                    "Max data volume threshold of the runtime filter build side for in-filter. "
+                                            + "Estimated data volume needs to be under this value to try to inject in-filter runtime filter.");
+
     /**
      * The data volume of probe side needs to be over this value. If the data volume on the probe
      * side is too small, the overhead of building runtime filter is not worth it.

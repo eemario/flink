@@ -18,12 +18,17 @@
 
 package org.apache.flink.table.runtime.operators.runtimefilter.util;
 
+import org.apache.flink.core.memory.DataInputDeserializer;
 import org.apache.flink.core.memory.MemorySegmentFactory;
 import org.apache.flink.runtime.operators.util.BloomFilter;
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
+import org.apache.flink.table.runtime.typeutils.RowDataSerializer;
 
 import javax.annotation.Nullable;
+
+import java.io.IOException;
+import java.util.HashSet;
 
 /** Utilities for runtime filter. */
 public class RuntimeFilterUtils {
@@ -43,17 +48,46 @@ public class RuntimeFilterUtils {
         return filter;
     }
 
-    public static RowData convertBloomFilterToRowData(
-            int actualRowCount, @Nullable BloomFilter bloomFilter) {
-        return convertBloomFilterToRowData(
-                actualRowCount, bloomFilter == null ? null : BloomFilter.toBytes(bloomFilter));
+    public static RowData convertRuntimeFilterToRowData(
+            int actualRowCount, @Nullable RuntimeFilter runtimeFilter) throws IOException {
+        if (runtimeFilter == null) {
+            return GenericRowData.of(actualRowCount, null, null);
+        }
+        return GenericRowData.of(
+                actualRowCount,
+                runtimeFilter.getRuntimeFilterType().ordinal(),
+                runtimeFilter.toBytes());
     }
 
-    public static RowData convertBloomFilterToRowData(
-            int actualRowCount, @Nullable byte[] serializedBloomFilter) {
-        final GenericRowData rowData = new GenericRowData(2);
-        rowData.setField(0, actualRowCount);
-        rowData.setField(1, serializedBloomFilter);
-        return rowData;
+    public static BloomFilterRuntimeFilter convertInFilterToBloomFilter(
+            int estimatedRowCount, InFilterRuntimeFilter inFilterRuntimeFilter) {
+        BloomFilterRuntimeFilter bloomFilterRuntimeFilter =
+                new BloomFilterRuntimeFilter(estimatedRowCount);
+        for (RowData rowData : inFilterRuntimeFilter.getInFilter()) {
+            bloomFilterRuntimeFilter.add(rowData);
+        }
+        return bloomFilterRuntimeFilter;
+    }
+
+    public static RuntimeFilter convertRowDataToRuntimeFilter(
+            RowData rowData, RowDataSerializer rowDataSerializer) throws IOException {
+        RuntimeFilterType runtimeFilterType = RuntimeFilterType.values()[rowData.getInt(1)];
+        byte[] serializedFilter = rowData.getBinary(2);
+        switch (runtimeFilterType) {
+            case BLOOM_FILTER:
+                BloomFilter bloomFilter = BloomFilter.fromBytes(serializedFilter);
+                return new BloomFilterRuntimeFilter(bloomFilter);
+            case IN_FILTER:
+                DataInputDeserializer dataInputDeserializer =
+                        new DataInputDeserializer(serializedFilter);
+                int size = dataInputDeserializer.readInt();
+                HashSet<RowData> inFilter = new HashSet<>();
+                for (int i = 0; i < size; i++) {
+                    inFilter.add(rowDataSerializer.deserialize(dataInputDeserializer));
+                }
+                return new InFilterRuntimeFilter(inFilter, rowDataSerializer);
+            default:
+                throw new RuntimeException("Unknown runtime filter type.");
+        }
     }
 }

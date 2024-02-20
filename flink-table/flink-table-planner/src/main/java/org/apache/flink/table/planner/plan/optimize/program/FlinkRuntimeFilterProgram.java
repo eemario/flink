@@ -20,6 +20,7 @@ package org.apache.flink.table.planner.plan.optimize.program;
 
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.table.api.config.OptimizerConfigOptions;
+import org.apache.flink.table.planner.calcite.FlinkTypeFactory;
 import org.apache.flink.table.planner.plan.nodes.FlinkConventions;
 import org.apache.flink.table.planner.plan.nodes.physical.batch.BatchPhysicalDynamicFilteringTableSourceScan;
 import org.apache.flink.table.planner.plan.nodes.physical.batch.BatchPhysicalExchange;
@@ -33,6 +34,8 @@ import org.apache.flink.table.planner.plan.trait.FlinkRelDistribution;
 import org.apache.flink.table.planner.plan.utils.DefaultRelShuttle;
 import org.apache.flink.table.planner.plan.utils.FlinkRelMdUtil;
 import org.apache.flink.table.planner.plan.utils.JoinUtil;
+import org.apache.flink.table.planner.typeutils.RowTypeUtils;
+import org.apache.flink.table.types.logical.RowType;
 
 import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.rel.RelNode;
@@ -248,12 +251,21 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
                         Math.ceil(
                                 getMaxBuildDataSize(buildSide)
                                         / FlinkRelMdUtil.binaryRowAverageSize(buildSide));
+        int maxInFilterRowCount =
+                (int)
+                        Math.ceil(
+                                getMaxInFilterBuildDataSize(buildSide)
+                                        / FlinkRelMdUtil.binaryRowAverageSize(buildSide));
         double filterRatio = computeFilterRatio(buildSide, probeSide, buildIndices, probeIndices);
 
         String[] buildFiledNames =
                 buildIndices.stream()
                         .map(buildSide.getRowType().getFieldNames()::get)
                         .toArray(String[]::new);
+        RowType buildRowType = FlinkTypeFactory.toLogicalRowType(buildSide.getRowType());
+        RowType filterRowType =
+                RowTypeUtils.projectRowType(buildRowType, buildIndices.toIntArray());
+
         RelNode localBuilder =
                 new BatchPhysicalLocalRuntimeFilterBuilder(
                         buildSide.getCluster(),
@@ -262,7 +274,8 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
                         buildIndices.toIntArray(),
                         buildFiledNames,
                         buildRowCount,
-                        maxRowCount);
+                        maxRowCount,
+                        maxInFilterRowCount);
         RelNode globalBuilder =
                 new BatchPhysicalGlobalRuntimeFilterBuilder(
                         localBuilder.getCluster(),
@@ -270,7 +283,9 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
                         createExchange(localBuilder, FlinkRelDistribution.SINGLETON()),
                         buildFiledNames,
                         buildRowCount,
-                        maxRowCount);
+                        maxRowCount,
+                        maxInFilterRowCount,
+                        filterRowType);
         RelNode runtimeFilter =
                 new BatchPhysicalRuntimeFilter(
                         probeSide.getCluster(),
@@ -696,6 +711,14 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
     private static long getMaxBuildDataSize(RelNode relNode) {
         return unwrapTableConfig(relNode)
                 .get(OptimizerConfigOptions.TABLE_OPTIMIZER_RUNTIME_FILTER_MAX_BUILD_DATA_SIZE)
+                .getBytes();
+    }
+
+    private static long getMaxInFilterBuildDataSize(RelNode relNode) {
+        return unwrapTableConfig(relNode)
+                .get(
+                        OptimizerConfigOptions
+                                .TABLE_OPTIMIZER_RUNTIME_FILTER_MAX_IN_FILTER_BUILD_DATA_SIZE)
                 .getBytes();
     }
 
