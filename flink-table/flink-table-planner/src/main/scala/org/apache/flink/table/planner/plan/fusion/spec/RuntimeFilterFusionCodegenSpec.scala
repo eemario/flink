@@ -17,12 +17,13 @@
  */
 package org.apache.flink.table.planner.plan.fusion.spec
 
-import org.apache.flink.runtime.operators.util.BloomFilter
 import org.apache.flink.table.data.binary.BinaryRowData
-import org.apache.flink.table.planner.codegen.{CodeGeneratorContext, GeneratedExpression}
 import org.apache.flink.table.planner.codegen.CodeGenUtils.{className, newName, newNames}
+import org.apache.flink.table.planner.codegen.{CodeGeneratorContext, GeneratedExpression}
 import org.apache.flink.table.planner.plan.fusion.{OpFusionCodegenSpecBase, OpFusionContext}
 import org.apache.flink.table.planner.typeutils.RowTypeUtils
+import org.apache.flink.table.runtime.operators.runtimefilter.util.{RuntimeFilter, RuntimeFilterUtils}
+import org.apache.flink.table.runtime.typeutils.RowDataSerializer
 import org.apache.flink.table.types.logical.RowType
 import org.apache.flink.util.Preconditions
 
@@ -71,19 +72,24 @@ class RuntimeFilterFusionCodegenSpec(opCodegenCtx: CodeGeneratorContext, probeIn
       inputId: Int,
       inputVars: util.List[GeneratedExpression],
       row: GeneratedExpression): String = {
+    val projectedType = RowTypeUtils.projectRowType(probeType, probeIndices)
     if (inputId == buildInputId) {
+      val rowDataSerializer = new RowDataSerializer(projectedType)
+      val serializer = opCodegenCtx.addReusableObject(rowDataSerializer, "serializer")
+
       buildComplete = newName(opCodegenCtx, "buildComplete")
       opCodegenCtx.addReusableMember(s"private transient boolean $buildComplete;")
       opCodegenCtx.addReusableOpenStatement(s"$buildComplete = false;")
 
       filterTerm = newName(opCodegenCtx, "filter")
-      val filterClass = className[BloomFilter]
+      val filterClass = className[RuntimeFilter]
       opCodegenCtx.addReusableMember(s"private transient $filterClass $filterTerm;")
+      val filterUtilsClass = className[RuntimeFilterUtils]
 
       s"""
          |${className[Preconditions]}.checkState(!$buildComplete, "Should not build completed.");
          |if ($filterTerm == null && !${row.resultTerm}.isNullAt(1)) {
-         |    $filterTerm = $filterClass.fromBytes(${row.resultTerm}.getBinary(1));
+         |    $filterTerm = $filterUtilsClass.convertRowDataToRuntimeFilter(${row.resultTerm}, $serializer);
          |}
          |""".stripMargin
     } else {
@@ -94,7 +100,7 @@ class RuntimeFilterFusionCodegenSpec(opCodegenCtx: CodeGeneratorContext, probeIn
       val keyProjectionCode = getExprCodeGenerator
         .generateResultExpression(
           probeKeyExprs,
-          RowTypeUtils.projectRowType(probeType, probeIndices),
+          projectedType,
           classOf[BinaryRowData],
           probeKeyTerm,
           outRowWriter = Option(probeKeyWriterTerm))
@@ -108,8 +114,7 @@ class RuntimeFilterFusionCodegenSpec(opCodegenCtx: CodeGeneratorContext, probeIn
          |if ($filterTerm != null) {
          |  // compute the hash code of probe key
          |  $keyProjectionCode
-         |  final int hashCode = $probeKeyTerm.hashCode();
-         |  if (!$filterTerm.testHash(hashCode)) {
+         |  if (!$filterTerm.test($probeKeyTerm)) {
          |    $found = false;
          |  }
          |}

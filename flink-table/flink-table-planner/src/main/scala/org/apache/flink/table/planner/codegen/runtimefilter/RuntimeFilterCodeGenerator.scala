@@ -17,13 +17,14 @@
  */
 package org.apache.flink.table.planner.codegen.runtimefilter
 
-import org.apache.flink.runtime.operators.util.BloomFilter
 import org.apache.flink.table.data.RowData
+import org.apache.flink.table.planner.codegen.CodeGenUtils.{DEFAULT_INPUT1_TERM, DEFAULT_INPUT2_TERM, className, newName}
+import org.apache.flink.table.planner.codegen.OperatorCodeGenerator.{INPUT_SELECTION, generateCollect}
 import org.apache.flink.table.planner.codegen.{CodeGeneratorContext, OperatorCodeGenerator, ProjectionCodeGenerator}
-import org.apache.flink.table.planner.codegen.CodeGenUtils.{className, newName, DEFAULT_INPUT1_TERM, DEFAULT_INPUT2_TERM, ROW_DATA}
-import org.apache.flink.table.planner.codegen.OperatorCodeGenerator.{generateCollect, INPUT_SELECTION}
 import org.apache.flink.table.planner.typeutils.RowTypeUtils
 import org.apache.flink.table.runtime.operators.CodeGenOperatorFactory
+import org.apache.flink.table.runtime.operators.runtimefilter.util.{RuntimeFilter, RuntimeFilterUtils}
+import org.apache.flink.table.runtime.typeutils.RowDataSerializer
 import org.apache.flink.table.types.logical.RowType
 import org.apache.flink.util.Preconditions
 
@@ -34,11 +35,15 @@ object RuntimeFilterCodeGenerator {
       buildType: RowType,
       probeType: RowType,
       probeIndices: Array[Int]): CodeGenOperatorFactory[RowData] = {
+    val projectedType = RowTypeUtils.projectRowType(probeType, probeIndices)
+    val rowDataSerializer = new RowDataSerializer(projectedType)
+    val serializer = ctx.addReusableObject(rowDataSerializer, "serializer")
+
     val probeGenProj = ProjectionCodeGenerator.generateProjection(
       ctx,
       "RuntimeFilterProjection",
       probeType,
-      RowTypeUtils.projectRowType(probeType, probeIndices),
+      projectedType,
       probeIndices)
     ctx.addReusableInnerClass(probeGenProj.getClassName, probeGenProj.getCode)
 
@@ -53,15 +58,16 @@ object RuntimeFilterCodeGenerator {
     ctx.addReusableOpenStatement(s"$buildComplete = false;")
 
     val filter = newName(ctx, "filter")
-    val filterClass = className[BloomFilter]
+    val filterClass = className[RuntimeFilter]
     ctx.addReusableMember(s"private transient $filterClass $filter;")
+    val filterUtilsClass = className[RuntimeFilterUtils]
 
     val processElement1Code =
       s"""
          |${className[Preconditions]}.checkState(!$buildComplete, "Should not build completed.");
          |
          |if ($filter == null && !$DEFAULT_INPUT1_TERM.isNullAt(1)) {
-         |    $filter = $filterClass.fromBytes($DEFAULT_INPUT1_TERM.getBinary(1));
+         |    $filter = $filterUtilsClass.convertRowDataToRuntimeFilter($DEFAULT_INPUT1_TERM, $serializer);
          |}
          |""".stripMargin
 
@@ -70,8 +76,7 @@ object RuntimeFilterCodeGenerator {
          |${className[Preconditions]}.checkState($buildComplete, "Should build completed.");
          |
          |if ($filter != null) {
-         |    final int hashCode = $probeProjection.apply($DEFAULT_INPUT2_TERM).hashCode();
-         |    if ($filter.testHash(hashCode)) {
+         |    if ($filter.test($probeProjection.apply($DEFAULT_INPUT2_TERM))) {
          |        ${generateCollect(s"$DEFAULT_INPUT2_TERM")}
          |    }
          |} else {

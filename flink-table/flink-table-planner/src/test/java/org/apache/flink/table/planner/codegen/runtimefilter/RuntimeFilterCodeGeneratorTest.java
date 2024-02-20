@@ -53,7 +53,7 @@ class RuntimeFilterCodeGeneratorTest {
 
     @BeforeEach
     void setup() throws Exception {
-        final RowType leftType = RowType.of(new IntType(), new VarBinaryType());
+        final RowType leftType = RowType.of(new IntType(), new IntType(), new VarBinaryType());
         final RowType rightType = RowType.of(new VarCharType(), new IntType());
         final CodeGeneratorContext ctx =
                 new CodeGeneratorContext(
@@ -78,9 +78,30 @@ class RuntimeFilterCodeGeneratorTest {
     }
 
     @Test
-    void testNormalFilter() throws Exception {
+    void testBloomFilter() throws Exception {
         // finish build phase
-        finishBuildPhase(createNormalInput());
+        finishBuildPhase(createBloomFilterInput());
+
+        // finish probe phase
+        testHarness.processElement(createRowDataRecord("var1", 111), 1);
+        testHarness.processElement(createRowDataRecord("var3", 333), 1);
+        testHarness.processElement(createRowDataRecord("var5", 555), 1);
+        testHarness.processElement(createRowDataRecord("var6", 666), 1);
+        testHarness.processElement(createRowDataRecord("var8", 888), 1);
+        testHarness.processElement(createRowDataRecord("var9", 999), 1);
+        testHarness.processEvent(new EndOfData(StopMode.DRAIN), 1);
+
+        assertThat(getOutputRowData())
+                .containsExactly(
+                        GenericRowData.of("var1", 111),
+                        GenericRowData.of("var3", 333),
+                        GenericRowData.of("var5", 555));
+    }
+
+    @Test
+    void testInFilter() throws Exception {
+        // finish build phase
+        finishBuildPhase(createInFilterInput());
 
         // finish probe phase
         testHarness.processElement(createRowDataRecord("var1", 111), 1);
@@ -139,16 +160,26 @@ class RuntimeFilterCodeGeneratorTest {
                 .collect(Collectors.toList());
     }
 
-    private static StreamRecord<RowData> createNormalInput() throws Exception {
-        StreamTaskMailboxTestHarness<RowData> localRuntimeFilterBuilder =
-                createLocalRuntimeFilterBuilderOperatorHarnessAndProcessElements(5, 10);
-        StreamRecord<RowData> normalFilter =
-                (StreamRecord<RowData>) localRuntimeFilterBuilder.getOutput().poll();
-        localRuntimeFilterBuilder.close();
-        return normalFilter;
+    private static StreamRecord<RowData> createBloomFilterInput() throws Exception {
+        StreamTaskMailboxTestHarness<RowData> localBloomFilterRuntimeFilterBuilder =
+                createLocalRuntimeFilterBuilderOperatorHarnessAndProcessElements(5, 10, 4);
+        StreamRecord<RowData> bloomFilter =
+                (StreamRecord<RowData>) localBloomFilterRuntimeFilterBuilder.getOutput().poll();
+        localBloomFilterRuntimeFilterBuilder.close();
+        return bloomFilter;
+    }
+
+    private static StreamRecord<RowData> createInFilterInput() throws Exception {
+        StreamTaskMailboxTestHarness<RowData> localInFilterRuntimeFilterBuilder =
+                createLocalRuntimeFilterBuilderOperatorHarnessAndProcessElements(5, 10, 5);
+        StreamRecord<RowData> inFilter =
+                (StreamRecord<RowData>) localInFilterRuntimeFilterBuilder.getOutput().poll();
+        localInFilterRuntimeFilterBuilder.close();
+        return inFilter;
     }
 
     private static StreamRecord<RowData> createOverMaxRowCountLimitInput() {
-        return new StreamRecord<>(GenericRowData.of(RuntimeFilterUtils.OVER_MAX_ROW_COUNT, null));
+        return new StreamRecord<>(
+                GenericRowData.of(RuntimeFilterUtils.OVER_MAX_ROW_COUNT, null, null));
     }
 }
