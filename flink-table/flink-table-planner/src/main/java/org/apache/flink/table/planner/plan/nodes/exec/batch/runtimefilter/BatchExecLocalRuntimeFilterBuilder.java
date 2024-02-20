@@ -38,6 +38,7 @@ import org.apache.flink.table.planner.typeutils.RowTypeUtils;
 import org.apache.flink.table.runtime.generated.GeneratedProjection;
 import org.apache.flink.table.runtime.operators.runtimefilter.LocalRuntimeFilterBuilderOperator;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
+import org.apache.flink.table.runtime.typeutils.RowDataSerializer;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
 
@@ -49,6 +50,7 @@ public class BatchExecLocalRuntimeFilterBuilder extends ExecNodeBase<RowData>
     private final int[] buildIndices;
     private final int estimatedRowCount;
     private final int maxRowCount;
+    private final int maxInFilterRowCount;
 
     public BatchExecLocalRuntimeFilterBuilder(
             ReadableConfig tableConfig,
@@ -57,7 +59,8 @@ public class BatchExecLocalRuntimeFilterBuilder extends ExecNodeBase<RowData>
             String description,
             int[] buildIndices,
             int estimatedRowCount,
-            int maxRowCount) {
+            int maxRowCount,
+            int maxInFilterRowCount) {
         super(
                 ExecNodeContext.newNodeId(),
                 ExecNodeContext.newContext(BatchExecLocalRuntimeFilterBuilder.class),
@@ -69,6 +72,7 @@ public class BatchExecLocalRuntimeFilterBuilder extends ExecNodeBase<RowData>
         this.buildIndices = buildIndices;
         this.estimatedRowCount = estimatedRowCount;
         this.maxRowCount = maxRowCount;
+        this.maxInFilterRowCount = maxInFilterRowCount;
     }
 
     @Override
@@ -80,19 +84,25 @@ public class BatchExecLocalRuntimeFilterBuilder extends ExecNodeBase<RowData>
                 (Transformation<RowData>) inputEdge.translateToPlan(planner);
 
         RowType buildType = (RowType) inputEdge.getOutputType();
+        RowType projectedType = RowTypeUtils.projectRowType(buildType, buildIndices);
         GeneratedProjection inputProj =
                 ProjectionCodeGenerator.generateProjection(
                         new CodeGeneratorContext(
                                 config, planner.getFlinkContext().getClassLoader()),
                         "LocalRuntimeFilterBuilderProjection",
                         buildType,
-                        RowTypeUtils.projectRowType(buildType, buildIndices),
+                        projectedType,
                         buildIndices);
+        RowDataSerializer rowDataSerializer = new RowDataSerializer(projectedType);
 
         StreamOperatorFactory<RowData> factory =
                 SimpleOperatorFactory.of(
                         new LocalRuntimeFilterBuilderOperator(
-                                inputProj, estimatedRowCount, maxRowCount));
+                                inputProj,
+                                estimatedRowCount,
+                                maxRowCount,
+                                maxInFilterRowCount,
+                                rowDataSerializer));
 
         return ExecNodeUtil.createOneInputTransformation(
                 inputTransform,

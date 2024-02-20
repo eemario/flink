@@ -59,6 +59,9 @@ public class FlinkRuntimeFilterProgramTest extends TableTestBase {
         tableConfig.set(
                 OptimizerConfigOptions.TABLE_OPTIMIZER_RUNTIME_FILTER_MAX_BUILD_DATA_SIZE,
                 MemorySize.parse("10m"));
+        tableConfig.set(
+                OptimizerConfigOptions.TABLE_OPTIMIZER_RUNTIME_FILTER_MAX_IN_FILTER_BUILD_DATA_SIZE,
+                MemorySize.parse("1m"));
 
         // row avg size is 48
         String dimDdl =

@@ -18,7 +18,6 @@
 
 package org.apache.flink.table.runtime.operators.runtimefilter;
 
-import org.apache.flink.runtime.operators.util.BloomFilter;
 import org.apache.flink.streaming.api.operators.BoundedOneInput;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
@@ -27,7 +26,10 @@ import org.apache.flink.table.data.binary.BinaryRowData;
 import org.apache.flink.table.runtime.generated.GeneratedProjection;
 import org.apache.flink.table.runtime.generated.Projection;
 import org.apache.flink.table.runtime.operators.TableStreamOperator;
+import org.apache.flink.table.runtime.operators.runtimefilter.util.InFilterRuntimeFilter;
+import org.apache.flink.table.runtime.operators.runtimefilter.util.RuntimeFilter;
 import org.apache.flink.table.runtime.operators.runtimefilter.util.RuntimeFilterUtils;
+import org.apache.flink.table.runtime.typeutils.RowDataSerializer;
 import org.apache.flink.table.runtime.util.StreamRecordCollector;
 import org.apache.flink.util.Collector;
 
@@ -49,18 +51,28 @@ public class LocalRuntimeFilterBuilderOperator extends TableStreamOperator<RowDa
      */
     private final int maxRowCount;
 
+    private final int maxInFilterRowCount;
+    private final RowDataSerializer rowDataSerializer;
+
     private transient Projection<RowData, BinaryRowData> buildSideProjection;
-    private transient BloomFilter filter;
+    private transient RuntimeFilter filter;
     private transient Collector<RowData> collector;
     private transient int actualRowCount;
 
     public LocalRuntimeFilterBuilderOperator(
-            GeneratedProjection buildProjectionCode, int estimatedRowCount, int maxRowCount) {
+            GeneratedProjection buildProjectionCode,
+            int estimatedRowCount,
+            int maxRowCount,
+            int maxInFilterRowCount,
+            RowDataSerializer rowDataSerializer) {
         checkArgument(estimatedRowCount > 0);
         checkArgument(maxRowCount >= estimatedRowCount);
+        checkArgument(maxRowCount >= maxInFilterRowCount);
         this.buildProjectionCode = checkNotNull(buildProjectionCode);
         this.estimatedRowCount = estimatedRowCount;
         this.maxRowCount = maxRowCount;
+        this.maxInFilterRowCount = maxInFilterRowCount;
+        this.rowDataSerializer = rowDataSerializer;
     }
 
     @Override
@@ -68,7 +80,7 @@ public class LocalRuntimeFilterBuilderOperator extends TableStreamOperator<RowDa
         super.open();
 
         this.buildSideProjection = buildProjectionCode.newInstance(getUserCodeClassloader());
-        this.filter = RuntimeFilterUtils.createOnHeapBloomFilter(estimatedRowCount);
+        this.filter = new InFilterRuntimeFilter(rowDataSerializer);
         this.collector = new StreamRecordCollector<>(output);
         this.actualRowCount = 0;
     }
@@ -77,9 +89,16 @@ public class LocalRuntimeFilterBuilderOperator extends TableStreamOperator<RowDa
     public void processElement(StreamRecord<RowData> element) throws Exception {
         if (filter != null) {
             checkNotNull(buildSideProjection);
-            int hashCode = buildSideProjection.apply(element.getValue()).hashCode();
-            filter.addHash(hashCode);
-            actualRowCount++;
+            if (filter.add(buildSideProjection.apply(element.getValue()).copy())) {
+                actualRowCount++;
+                if (filter instanceof InFilterRuntimeFilter
+                        && actualRowCount > maxInFilterRowCount) {
+                    InFilterRuntimeFilter inFilterRuntimeFilter = (InFilterRuntimeFilter) filter;
+                    filter =
+                            RuntimeFilterUtils.convertInFilterToBloomFilter(
+                                    estimatedRowCount, inFilterRuntimeFilter);
+                }
+            }
 
             if (actualRowCount > maxRowCount) {
                 // the actual row count is over the allowed max row count, we will output a
@@ -92,6 +111,6 @@ public class LocalRuntimeFilterBuilderOperator extends TableStreamOperator<RowDa
 
     @Override
     public void endInput() throws Exception {
-        collector.collect(RuntimeFilterUtils.convertBloomFilterToRowData(actualRowCount, filter));
+        collector.collect(RuntimeFilterUtils.convertRuntimeFilterToRowData(actualRowCount, filter));
     }
 }
