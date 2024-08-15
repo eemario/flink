@@ -19,6 +19,9 @@ package org.apache.flink.table.planner.delegation
 
 import org.apache.flink.annotation.VisibleForTesting
 import org.apache.flink.api.dag.Transformation
+import org.apache.flink.configuration.IncrementalProcessingOptions.{INCREMENTAL_PROCESSING_CHECKPOINTS_PATH, INCREMENTAL_PROCESSING_MODE, IncrementalProcessingMode}
+import org.apache.flink.incremental.{PlanningResult, SourceOffsets}
+import org.apache.flink.runtime.incremental.FileSystemSourceOffsetsStore
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment
 import org.apache.flink.streaming.api.graph.StreamGraph
 import org.apache.flink.table.api._
@@ -37,6 +40,7 @@ import org.apache.flink.table.planner.catalog.CatalogManagerCalciteSchema
 import org.apache.flink.table.planner.connectors.DynamicSinkUtils
 import org.apache.flink.table.planner.connectors.DynamicSinkUtils.validateSchemaAndApplyImplicitCast
 import org.apache.flink.table.planner.hint.FlinkHints
+import org.apache.flink.table.planner.incremental.IncrementalProcessingShuttle
 import org.apache.flink.table.planner.operations.PlannerQueryOperation
 import org.apache.flink.table.planner.plan.nodes.calcite.LogicalLegacySink
 import org.apache.flink.table.planner.plan.nodes.exec.{ExecNodeGraph, ExecNodeGraphGenerator}
@@ -101,6 +105,10 @@ abstract class PlannerBase(
   // the transformations generated in translateToPlan method, they are not connected
   // with sink transformations but also are needed in the final graph.
   private[flink] val extraTransformations = new util.ArrayList[Transformation[_]]()
+  // the end source offsets of the incremental processing job if the planner can generate the
+  // incremental plan.
+  private val cachedEndOffsets: SourceOffsets = new SourceOffsets()
+  private var containsIncremental: Boolean = false
 
   @VisibleForTesting
   private[flink] val plannerContext: PlannerContext =
@@ -167,19 +175,72 @@ abstract class PlannerBase(
     parser
   }
 
-  override def translate(
-      modifyOperations: util.List[ModifyOperation]): util.List[Transformation[_]] = {
+  override def translate(modifyOperations: util.List[ModifyOperation]): PlanningResult = {
     beforeTranslation()
     if (modifyOperations.isEmpty) {
-      return List.empty[Transformation[_]]
+      return new PlanningResult(List.empty[Transformation[_]], null, false)
     }
 
     val relNodes = modifyOperations.map(translateToRel)
-    val optimizedRelNodes = optimize(relNodes)
+
+    // May try to generate an incremental processing plan
+    val maybeIncrementalRelNodes = tryIncrementalProcessing(relNodes)
+
+    val optimizedRelNodes = optimize(maybeIncrementalRelNodes)
     val execGraph = translateToExecNodeGraph(optimizedRelNodes, isCompiled = false)
     val transformations = translateToPlan(execGraph)
     afterTranslation()
-    transformations
+    // TODO check whether the incremental plan is chosen after optimization
+    val isIncremental = containsIncremental;
+    if (containsIncremental) {
+      new PlanningResult(transformations, cachedEndOffsets, isIncremental)
+    } else {
+      new PlanningResult(transformations, null, isIncremental)
+    }
+  }
+
+  private def tryIncrementalProcessing(relNodes: Seq[RelNode]): Seq[RelNode] = {
+    if (
+      !isStreamingMode &&
+      tableConfig.get(INCREMENTAL_PROCESSING_MODE) == IncrementalProcessingMode.AUTO &&
+      tableConfig.get(INCREMENTAL_PROCESSING_CHECKPOINTS_PATH) != null
+    ) {
+      // Restores source offsets
+      val checkpointsPath = tableConfig.get(INCREMENTAL_PROCESSING_CHECKPOINTS_PATH)
+      val sourceOffsetsStore = new FileSystemSourceOffsetsStore(checkpointsPath)
+      val restoredOffsets = sourceOffsetsStore.readSourceOffsets()
+      // Start offsets need to be cached to avoid repeated interaction with the sources.
+      val cachedStartOffsets = new SourceOffsets()
+      relNodes.map {
+        relNode =>
+          Option(
+            tryCreateIncrementalRelNode(
+              relNode,
+              restoredOffsets,
+              cachedStartOffsets,
+              cachedEndOffsets)).getOrElse(relNode)
+      }
+    } else {
+      relNodes
+    }
+  }
+
+  /** Tries to create a RelNode tree for incremental processing. */
+  private def tryCreateIncrementalRelNode(
+      root: RelNode,
+      restoredOffsets: SourceOffsets,
+      cachedStartOffsets: SourceOffsets,
+      cachedEndOffsets: SourceOffsets): RelNode = {
+    val shuttle: IncrementalProcessingShuttle = new IncrementalProcessingShuttle(
+      tableConfig,
+      restoredOffsets,
+      cachedStartOffsets,
+      cachedEndOffsets)
+    val newRoot = root.accept(shuttle)
+    if (newRoot != null) {
+      containsIncremental = true
+    }
+    newRoot
   }
 
   /** Converts a relational tree of [[ModifyOperation]] into a Calcite relational expression. */

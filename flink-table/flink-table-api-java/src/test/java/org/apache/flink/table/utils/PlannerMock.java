@@ -19,6 +19,7 @@
 package org.apache.flink.table.utils;
 
 import org.apache.flink.api.dag.Transformation;
+import org.apache.flink.incremental.PlanningResult;
 import org.apache.flink.table.api.ExplainDetail;
 import org.apache.flink.table.api.ExplainFormat;
 import org.apache.flink.table.api.PlanReference;
@@ -40,7 +41,7 @@ public class PlannerMock implements Planner {
     }
 
     @Override
-    public List<Transformation<?>> translate(List<ModifyOperation> modifyOperations) {
+    public PlanningResult translate(List<ModifyOperation> modifyOperations) {
         return null;
     }
 

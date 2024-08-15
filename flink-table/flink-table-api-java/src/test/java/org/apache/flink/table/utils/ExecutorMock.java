@@ -24,6 +24,7 @@ import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.core.execution.JobClient;
 import org.apache.flink.core.execution.JobStatusHook;
+import org.apache.flink.incremental.PlanningResult;
 import org.apache.flink.table.delegation.Executor;
 
 import javax.annotation.Nullable;
@@ -48,7 +49,7 @@ public class ExecutorMock implements Executor {
 
     @Override
     public Pipeline createPipeline(
-            List<Transformation<?>> transformations,
+            PlanningResult planningResult,
             ReadableConfig tableConfiguration,
             @org.jetbrains.annotations.Nullable String defaultJobName,
             List<JobStatusHook> jobStatusHookList) {

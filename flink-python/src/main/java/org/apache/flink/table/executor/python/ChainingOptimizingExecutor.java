@@ -25,6 +25,7 @@ import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.core.execution.JobClient;
 import org.apache.flink.core.execution.JobStatusHook;
+import org.apache.flink.incremental.PlanningResult;
 import org.apache.flink.python.PythonOptions;
 import org.apache.flink.python.chain.PythonOperatorChainingOptimizer;
 import org.apache.flink.python.util.PythonConfigUtil;
@@ -57,25 +58,35 @@ public class ChainingOptimizingExecutor implements Executor {
             ReadableConfig configuration,
             String defaultJobName) {
         return createPipeline(
-                transformations, configuration, defaultJobName, Collections.emptyList());
+                new PlanningResult(transformations, null, false),
+                configuration,
+                defaultJobName,
+                Collections.emptyList());
     }
 
     @Override
     public Pipeline createPipeline(
-            List<Transformation<?>> transformations,
+            PlanningResult planningResult,
             ReadableConfig configuration,
             @Nullable String defaultJobName,
             List<JobStatusHook> jobStatusHookList) {
-        List<Transformation<?>> chainedTransformations = transformations;
+        List<Transformation<?>> chainedTransformations = planningResult.getTransformations();
         if (configuration
                 .getOptional(PythonOptions.PYTHON_OPERATOR_CHAINING_ENABLED)
                 .orElse(getConfiguration().get(PythonOptions.PYTHON_OPERATOR_CHAINING_ENABLED))) {
-            chainedTransformations = PythonOperatorChainingOptimizer.optimize(transformations);
+            chainedTransformations =
+                    PythonOperatorChainingOptimizer.optimize(planningResult.getTransformations());
         }
 
         PythonConfigUtil.setPartitionCustomOperatorNumPartitions(chainedTransformations);
         return executor.createPipeline(
-                chainedTransformations, configuration, defaultJobName, jobStatusHookList);
+                new PlanningResult(
+                        chainedTransformations,
+                        planningResult.getSourceOffsets(),
+                        planningResult.isIncremental()),
+                configuration,
+                defaultJobName,
+                jobStatusHookList);
     }
 
     @Override

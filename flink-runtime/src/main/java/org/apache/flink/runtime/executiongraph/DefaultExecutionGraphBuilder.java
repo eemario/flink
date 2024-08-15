@@ -170,7 +170,9 @@ public class DefaultExecutionGraphBuilder {
                         jobGraph.getJobStatusHooks(),
                         markPartitionFinishedStrategy,
                         taskDeploymentDescriptorFactory,
-                        jobStatusChangedListeners);
+                        jobStatusChangedListeners,
+                        jobGraph.getSourceOffsets(),
+                        jobGraph.isIncremental());
 
         // set the basic properties
 

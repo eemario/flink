@@ -316,6 +316,7 @@ public class StreamingJobGraphGenerator {
 
         setVertexDescription();
 
+        jobGraph.setSourceOffsets(streamGraph.getSourceOffsets(), streamGraph.isIncremental());
         // Wait for the serialization of operator coordinators and stream config.
         try {
             FutureUtils.combineAll(

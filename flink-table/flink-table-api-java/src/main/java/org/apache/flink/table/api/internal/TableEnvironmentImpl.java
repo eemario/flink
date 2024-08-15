@@ -26,6 +26,7 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.execution.JobClient;
 import org.apache.flink.core.execution.JobStatusHook;
 import org.apache.flink.core.fs.Path;
+import org.apache.flink.incremental.PlanningResult;
 import org.apache.flink.table.api.CompiledPlan;
 import org.apache.flink.table.api.DataTypes;
 import org.apache.flink.table.api.EnvironmentSettings;
@@ -871,9 +872,9 @@ public class TableEnvironmentImpl implements TableEnvironmentInternal {
             }
         }
 
-        List<Transformation<?>> transformations = translate(mapOperations);
+        PlanningResult planningResult = translate(mapOperations);
         List<String> sinkIdentifierNames = extractSinkIdentifierNames(mapOperations);
-        return executeInternal(transformations, sinkIdentifierNames, jobStatusHookList);
+        return executeInternal(planningResult, sinkIdentifierNames, jobStatusHookList);
     }
 
     private ModifyOperation getModifyOperation(
@@ -1010,21 +1011,25 @@ public class TableEnvironmentImpl implements TableEnvironmentInternal {
 
     private TableResultInternal executeInternal(
             List<Transformation<?>> transformations, List<String> sinkIdentifierNames) {
-        return executeInternal(transformations, sinkIdentifierNames, Collections.emptyList());
+        return executeInternal(
+                new PlanningResult(transformations, null, false),
+                sinkIdentifierNames,
+                Collections.emptyList());
     }
 
     private TableResultInternal executeInternal(
-            List<Transformation<?>> transformations,
+            PlanningResult planningResult,
             List<String> sinkIdentifierNames,
             List<JobStatusHook> jobStatusHookList) {
         final String defaultJobName = "insert-into_" + String.join(",", sinkIdentifierNames);
 
         resourceManager.addJarConfiguration(tableConfig);
 
+        List<Transformation<?>> transformations = planningResult.getTransformations();
         // We pass only the configuration to avoid reconfiguration with the rootConfiguration
         Pipeline pipeline =
                 execEnv.createPipeline(
-                        transformations,
+                        planningResult,
                         tableConfig.getConfiguration(),
                         defaultJobName,
                         jobStatusHookList);
@@ -1130,7 +1135,7 @@ public class TableEnvironmentImpl implements TableEnvironmentInternal {
             QueryOperation queryOperation = (QueryOperation) operation;
             CollectModifyOperation sinkOperation = new CollectModifyOperation(queryOperation);
             List<Transformation<?>> transformations =
-                    translate(Collections.singletonList(sinkOperation));
+                    translate(Collections.singletonList(sinkOperation)).getTransformations();
             return executeQueryOperation(queryOperation, sinkOperation, transformations);
         } else if (operation instanceof ExecutePlanOperation) {
             ExecutePlanOperation executePlanOperation = (ExecutePlanOperation) operation;
@@ -1304,7 +1309,7 @@ public class TableEnvironmentImpl implements TableEnvironmentInternal {
         TableSourceValidation.validateTableSource(tableSource, tableSource.getTableSchema());
     }
 
-    protected List<Transformation<?>> translate(List<ModifyOperation> modifyOperations) {
+    protected PlanningResult translate(List<ModifyOperation> modifyOperations) {
         return planner.translate(modifyOperations);
     }
 

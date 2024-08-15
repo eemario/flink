@@ -221,7 +221,7 @@ public abstract class AbstractStreamTableEnvironmentImpl extends TableEnvironmen
 
     protected <T> DataStream<T> toStreamInternal(Table table, ModifyOperation modifyOperation) {
         final List<Transformation<?>> transformations =
-                planner.translate(Collections.singletonList(modifyOperation));
+                planner.translate(Collections.singletonList(modifyOperation)).getTransformations();
 
         final Transformation<T> transformation = getTransformation(table, transformations);
         executionEnvironment.addOperator(transformation);
@@ -324,7 +324,8 @@ public abstract class AbstractStreamTableEnvironmentImpl extends TableEnvironmen
     }
 
     public void attachAsDataStream(List<ModifyOperation> modifyOperations) {
-        final List<Transformation<?>> transformations = translate(modifyOperations);
+        final List<Transformation<?>> transformations =
+                translate(modifyOperations).getTransformations();
         transformations.forEach(executionEnvironment::addOperator);
     }
 }

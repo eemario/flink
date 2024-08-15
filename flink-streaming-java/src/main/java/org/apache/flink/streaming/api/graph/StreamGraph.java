@@ -36,6 +36,7 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.PipelineOptions;
 import org.apache.flink.core.execution.JobStatusHook;
 import org.apache.flink.core.memory.ManagedMemoryUseCase;
+import org.apache.flink.incremental.SourceOffsets;
 import org.apache.flink.runtime.clusterframework.types.ResourceProfile;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
 import org.apache.flink.runtime.jobgraph.JobGraph;
@@ -136,6 +137,10 @@ public class StreamGraph implements Pipeline {
     private boolean dynamic;
 
     private boolean autoParallelismEnabled;
+
+    @Nullable private SourceOffsets sourceOffsets;
+
+    private boolean isIncremental;
 
     public StreamGraph(
             Configuration jobConfiguration,
@@ -1073,5 +1078,19 @@ public class StreamGraph implements Pipeline {
         if (streamNode != null) {
             streamNode.setSupportsConcurrentExecutionAttempts(supportsConcurrentExecutionAttempts);
         }
+    }
+
+    @Nullable
+    SourceOffsets getSourceOffsets() {
+        return sourceOffsets;
+    }
+
+    public boolean isIncremental() {
+        return isIncremental;
+    }
+
+    public void setSourceOffsets(SourceOffsets sourceOffsets, boolean isIncremental) {
+        this.sourceOffsets = sourceOffsets;
+        this.isIncremental = isIncremental;
     }
 }

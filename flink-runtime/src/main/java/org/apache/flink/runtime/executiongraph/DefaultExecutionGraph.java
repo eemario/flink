@@ -30,6 +30,7 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.execution.DefaultJobExecutionStatusEvent;
 import org.apache.flink.core.execution.JobStatusChangedListener;
 import org.apache.flink.core.execution.JobStatusHook;
+import org.apache.flink.incremental.SourceOffsets;
 import org.apache.flink.metrics.Counter;
 import org.apache.flink.metrics.SimpleCounter;
 import org.apache.flink.runtime.JobException;
@@ -54,6 +55,9 @@ import org.apache.flink.runtime.entrypoint.ClusterEntryPointExceptionUtils;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.failover.ResultPartitionAvailabilityChecker;
 import org.apache.flink.runtime.executiongraph.failover.partitionrelease.PartitionGroupReleaseStrategy;
+import org.apache.flink.runtime.incremental.FileSystemSourceOffsetsStore;
+import org.apache.flink.runtime.incremental.HistoryRecord;
+import org.apache.flink.runtime.incremental.SourceOffsetsStore;
 import org.apache.flink.runtime.io.network.partition.JobMasterPartitionTracker;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
@@ -120,6 +124,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static org.apache.flink.configuration.IncrementalProcessingOptions.INCREMENTAL_PROCESSING_CHECKPOINTS_PATH;
+import static org.apache.flink.configuration.IncrementalProcessingOptions.INCREMENTAL_PROCESSING_NUM_RETAINED_HISTORY;
+import static org.apache.flink.configuration.IncrementalProcessingOptions.INCREMENTAL_PROCESSING_STORE_RETRY_ATTEMPTS;
 import static org.apache.flink.runtime.executiongraph.ExecutionGraphUtils.isAnyOutputBlocking;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 import static org.apache.flink.util.Preconditions.checkState;
@@ -306,6 +313,9 @@ public class DefaultExecutionGraph implements ExecutionGraph, InternalExecutionG
 
     private final List<JobStatusChangedListener> jobStatusChangedListeners;
 
+    @Nullable private final SourceOffsets sourceOffsets;
+    private final boolean isIncremental;
+
     // --------------------------------------------------------------------------------------------
     //   Constructors
     // --------------------------------------------------------------------------------------------
@@ -332,7 +342,9 @@ public class DefaultExecutionGraph implements ExecutionGraph, InternalExecutionG
             List<JobStatusHook> jobStatusHooks,
             MarkPartitionFinishedStrategy markPartitionFinishedStrategy,
             TaskDeploymentDescriptorFactory taskDeploymentDescriptorFactory,
-            List<JobStatusChangedListener> jobStatusChangedListeners) {
+            List<JobStatusChangedListener> jobStatusChangedListeners,
+            @Nullable SourceOffsets sourceOffsets,
+            boolean isIncremental) {
 
         this.jobType = jobType;
         this.executionGraphId = new ExecutionGraphID();
@@ -404,6 +416,9 @@ public class DefaultExecutionGraph implements ExecutionGraph, InternalExecutionG
         this.taskDeploymentDescriptorFactory = checkNotNull(taskDeploymentDescriptorFactory);
 
         this.jobStatusChangedListeners = checkNotNull(jobStatusChangedListeners);
+
+        this.sourceOffsets = sourceOffsets;
+        this.isIncremental = isIncremental;
 
         LOG.info(
                 "Created execution graph {} for job {}.",
@@ -1261,6 +1276,38 @@ public class DefaultExecutionGraph implements ExecutionGraph, InternalExecutionG
                 ClusterEntryPointExceptionUtils.tryEnrichClusterEntryPointError(t);
                 failGlobal(new Exception("Failed to finalize execution on master", t));
                 return;
+            }
+
+            // Stores incremental processing history and source offsets
+            if (sourceOffsets != null) {
+                int remainingAttempts =
+                        getJobConfiguration().get(INCREMENTAL_PROCESSING_STORE_RETRY_ATTEMPTS);
+                boolean success = false;
+
+                int numRetainedHistory =
+                        getJobConfiguration().get(INCREMENTAL_PROCESSING_NUM_RETAINED_HISTORY);
+                HistoryRecord historyRecord = new HistoryRecord(getJobID(), isIncremental);
+
+                while (remainingAttempts > 0 && !success) {
+                    try {
+                        SourceOffsetsStore sourceOffsetsStore =
+                                new FileSystemSourceOffsetsStore(
+                                        getJobConfiguration()
+                                                .get(INCREMENTAL_PROCESSING_CHECKPOINTS_PATH));
+                        sourceOffsetsStore.writeSourceOffsets(
+                                sourceOffsets, historyRecord, numRetainedHistory);
+                        success = true;
+                    } catch (Exception e) {
+                        ExceptionUtils.rethrowIfFatalError(e);
+                        ClusterEntryPointExceptionUtils.tryEnrichClusterEntryPointError(e);
+                        LOG.warn("Failed to write source offsets on master, retrying", e);
+                        remainingAttempts--;
+                    }
+                }
+                if (!success) {
+                    failGlobal(new Exception("Failed to write source offsets on master"));
+                    return;
+                }
             }
 
             // if we do not make this state transition, then a concurrent

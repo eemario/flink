@@ -32,6 +32,7 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.connector.source.DynamicFilteringValuesSource;
 import org.apache.flink.connector.source.TerminatingLogic;
 import org.apache.flink.connector.source.ValuesSource;
+import org.apache.flink.incremental.Offset;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.DataStreamSink;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
@@ -68,6 +69,7 @@ import org.apache.flink.table.connector.source.TableFunctionProvider;
 import org.apache.flink.table.connector.source.abilities.SupportsAggregatePushDown;
 import org.apache.flink.table.connector.source.abilities.SupportsDynamicFiltering;
 import org.apache.flink.table.connector.source.abilities.SupportsFilterPushDown;
+import org.apache.flink.table.connector.source.abilities.SupportsIncrementalScan;
 import org.apache.flink.table.connector.source.abilities.SupportsLimitPushDown;
 import org.apache.flink.table.connector.source.abilities.SupportsPartitionPushDown;
 import org.apache.flink.table.connector.source.abilities.SupportsProjectionPushDown;
@@ -480,6 +482,9 @@ public final class TestValuesTableFactory
 
     private static final ConfigOption<Integer> SINK_PARALLELISM = FactoryUtil.SINK_PARALLELISM;
 
+    private static final ConfigOption<Boolean> ENABLE_INCREMENTAL_PROCESSING =
+            ConfigOptions.key("enable-incremental-processing").booleanType().defaultValue(false);
+
     @Override
     public String factoryIdentifier() {
         return IDENTIFIER;
@@ -543,6 +548,9 @@ public final class TestValuesTableFactory
                 isFinite ? TerminatingLogic.FINITE : TerminatingLogic.INFINITE;
         Boundedness boundedness =
                 isBounded ? Boundedness.BOUNDED : Boundedness.CONTINUOUS_UNBOUNDED;
+
+        boolean enableIncrementalProcessing =
+                helper.getOptions().get(ENABLE_INCREMENTAL_PROCESSING);
 
         if (sourceClass.equals("DEFAULT")) {
             if (internalData) {
@@ -629,6 +637,32 @@ public final class TestValuesTableFactory
                             null);
                 }
             } else {
+                if (enableIncrementalProcessing) {
+                    return new TestValuesScanLookupTableSourceWithSupportsIncrementalScan(
+                            context.getCatalogTable().getResolvedSchema().toPhysicalRowDataType(),
+                            producedDataType,
+                            changelogMode,
+                            boundedness,
+                            terminating,
+                            runtimeSource,
+                            failingSource,
+                            partition2Rows,
+                            isAsync,
+                            lookupFunctionClass,
+                            nestedProjectionSupported,
+                            null,
+                            Collections.emptyList(),
+                            filterableFieldsSet,
+                            dynamicFilteringFieldsSet,
+                            numElementToSkip,
+                            Long.MAX_VALUE,
+                            partitions,
+                            readableMetadata,
+                            null,
+                            cache,
+                            reloadTrigger,
+                            lookupThreshold);
+                }
                 return new TestValuesScanLookupTableSource(
                         context.getCatalogTable().getResolvedSchema().toPhysicalRowDataType(),
                         producedDataType,
@@ -774,7 +808,8 @@ public final class TestValuesTableFactory
                         FULL_CACHE_PERIODIC_RELOAD_INTERVAL,
                         FULL_CACHE_PERIODIC_RELOAD_SCHEDULE_MODE,
                         FULL_CACHE_TIMED_RELOAD_ISO_TIME,
-                        FULL_CACHE_TIMED_RELOAD_INTERVAL_IN_DAYS));
+                        FULL_CACHE_TIMED_RELOAD_INTERVAL_IN_DAYS,
+                        ENABLE_INCREMENTAL_PROCESSING));
     }
 
     private static int validateAndExtractRowtimeIndex(
@@ -1959,6 +1994,76 @@ public final class TestValuesTableFactory
         @Override
         public String asSummaryString() {
             return "TestValuesWithInternalData";
+        }
+    }
+
+    /** Values {@link SupportsIncrementalScan} for incremental processing. */
+    public static class TestValuesScanLookupTableSourceWithSupportsIncrementalScan
+            extends TestValuesScanLookupTableSource implements SupportsIncrementalScan {
+
+        private TestValuesScanLookupTableSourceWithSupportsIncrementalScan(
+                DataType originType,
+                DataType producedDataType,
+                ChangelogMode changelogMode,
+                Boundedness boundedness,
+                TerminatingLogic terminating,
+                String runtimeSource,
+                boolean failingSource,
+                Map<Map<String, String>, Collection<Row>> data,
+                boolean isAsync,
+                @Nullable String lookupFunctionClass,
+                boolean nestedProjectionSupported,
+                int[][] projectedFields,
+                List<ResolvedExpression> filterPredicates,
+                Set<String> filterableFields,
+                Set<String> dynamicFilteringFields,
+                int numElementToSkip,
+                long limit,
+                List<Map<String, String>> allPartitions,
+                Map<String, DataType> readableMetadata,
+                @Nullable int[] projectedMetadataFields,
+                @Nullable LookupCache cache,
+                @Nullable CacheReloadTrigger reloadTrigger,
+                int lookupThreshold) {
+            super(
+                    originType,
+                    producedDataType,
+                    changelogMode,
+                    boundedness,
+                    terminating,
+                    runtimeSource,
+                    failingSource,
+                    data,
+                    isAsync,
+                    lookupFunctionClass,
+                    nestedProjectionSupported,
+                    projectedFields,
+                    filterPredicates,
+                    filterableFields,
+                    dynamicFilteringFields,
+                    numElementToSkip,
+                    limit,
+                    allPartitions,
+                    readableMetadata,
+                    projectedMetadataFields,
+                    cache,
+                    reloadTrigger,
+                    lookupThreshold);
+        }
+
+        @Override
+        public DynamicTableSource withScanRange(Offset start, Offset end) {
+            return copy();
+        }
+
+        @Override
+        public Offset getEndOffset() {
+            return null;
+        }
+
+        @Override
+        public Offset getOffset(long timestamp) {
+            return null;
         }
     }
 

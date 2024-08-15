@@ -19,6 +19,7 @@
 package org.apache.flink.table.api.bridge.java.internal;
 
 import org.apache.flink.api.dag.Transformation;
+import org.apache.flink.incremental.PlanningResult;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.api.Table;
@@ -105,8 +106,8 @@ class StreamTableEnvironmentImplTest {
         }
 
         @Override
-        public List<Transformation<?>> translate(List<ModifyOperation> modifyOperations) {
-            return Collections.singletonList(transformation);
+        public PlanningResult translate(List<ModifyOperation> modifyOperations) {
+            return new PlanningResult(Collections.singletonList(transformation), null, false);
         }
     }
 }

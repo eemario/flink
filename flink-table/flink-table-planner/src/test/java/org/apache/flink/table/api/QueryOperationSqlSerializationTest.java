@@ -109,7 +109,9 @@ public class QueryOperationSqlSerializationTest implements TableTestProgramRunne
         QueryOperation queryOperation = table.getQueryOperation();
         CollectModifyOperation sinkOperation = new CollectModifyOperation(queryOperation);
         List<Transformation<?>> transformations =
-                env.getPlanner().translate(Collections.singletonList(sinkOperation));
+                env.getPlanner()
+                        .translate(Collections.singletonList(sinkOperation))
+                        .getTransformations();
 
         StreamGraph streamGraph =
                 (StreamGraph)
