@@ -266,6 +266,25 @@ public interface Catalog {
     }
 
     /**
+     * Returns the latest snapshot timestamp of the table or view identified by the given {@link
+     * ObjectPath} before a specific time.
+     *
+     * @param tablePath Path of the table or view
+     * @param timestamp Timestamp of the specified time, which is milliseconds since 1970-01-01
+     *     00:00:00 UTC
+     * @return The requested snapshot timestamp or -1 if there is no snapshot for the table yet
+     * @throws TableNotExistException if the target does not exist
+     * @throws CatalogException in case of any runtime exception
+     */
+    default long getTableTimestamp(ObjectPath tablePath, long timestamp)
+            throws TableNotExistException, CatalogException {
+        throw new UnsupportedOperationException(
+                String.format(
+                        "getTableTimestamp(ObjectPath, long) is not implemented for %s.",
+                        this.getClass()));
+    }
+
+    /**
      * Check if a table or view exists in this catalog.
      *
      * @param tablePath Path of the table or view
