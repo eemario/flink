@@ -78,6 +78,8 @@ public class SourceTransformationTranslator<OUT, SplitT extends SourceSplit, Enu
 
         operatorFactory.setChainingStrategy(transformation.getChainingStrategy());
         operatorFactory.setCoordinatorListeningID(transformation.getCoordinatorListeningID());
+        operatorFactory.setRuntimeFilteringCoordinatorListeningID(
+                transformation.getRuntimeFilteringCoordinatorListeningID());
 
         streamGraph.addSource(
                 transformationId,

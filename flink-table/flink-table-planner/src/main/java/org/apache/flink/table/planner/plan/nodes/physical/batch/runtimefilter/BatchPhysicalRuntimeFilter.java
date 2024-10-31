@@ -47,6 +47,7 @@ public class BatchPhysicalRuntimeFilter extends BiRel implements BatchPhysicalRe
 
     private final int[] probeIndices;
     private final double estimatedFilterRatio;
+    private final boolean tryPushDown;
 
     public BatchPhysicalRuntimeFilter(
             RelOptCluster cluster,
@@ -54,10 +55,12 @@ public class BatchPhysicalRuntimeFilter extends BiRel implements BatchPhysicalRe
             RelNode left,
             RelNode right,
             int[] probeIndices,
-            double estimatedFilterRatio) {
+            double estimatedFilterRatio,
+            boolean tryPushDown) {
         super(cluster, traitSet, left, right);
         this.probeIndices = probeIndices;
         this.estimatedFilterRatio = estimatedFilterRatio;
+        this.tryPushDown = tryPushDown;
     }
 
     @Override
@@ -68,7 +71,8 @@ public class BatchPhysicalRuntimeFilter extends BiRel implements BatchPhysicalRe
                 inputs.get(0),
                 inputs.get(1),
                 probeIndices,
-                estimatedFilterRatio);
+                estimatedFilterRatio,
+                tryPushDown);
     }
 
     @Override
@@ -103,7 +107,8 @@ public class BatchPhysicalRuntimeFilter extends BiRel implements BatchPhysicalRe
                 getInputProperties(),
                 FlinkTypeFactory.toLogicalRowType(getRowType()),
                 getRelDetailedDescription(),
-                probeIndices);
+                probeIndices,
+                tryPushDown);
     }
 
     private List<InputProperty> getInputProperties() {

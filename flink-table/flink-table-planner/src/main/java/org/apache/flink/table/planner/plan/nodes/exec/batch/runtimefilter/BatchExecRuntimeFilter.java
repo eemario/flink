@@ -20,6 +20,8 @@ package org.apache.flink.table.planner.plan.nodes.exec.batch.runtimefilter;
 
 import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.configuration.ReadableConfig;
+import org.apache.flink.streaming.api.transformations.OneInputTransformation;
+import org.apache.flink.streaming.api.transformations.SourceTransformation;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.planner.codegen.CodeGeneratorContext;
 import org.apache.flink.table.planner.codegen.runtimefilter.RuntimeFilterCodeGenerator;
@@ -33,26 +35,35 @@ import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeBase;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeConfig;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeContext;
 import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
+import org.apache.flink.table.planner.plan.nodes.exec.batch.BatchExecExchange;
 import org.apache.flink.table.planner.plan.nodes.exec.batch.BatchExecNode;
+import org.apache.flink.table.planner.plan.nodes.exec.batch.BatchExecTableSourceScan;
 import org.apache.flink.table.planner.plan.nodes.exec.utils.ExecNodeUtil;
 import org.apache.flink.table.runtime.operators.CodeGenOperatorFactory;
+import org.apache.flink.table.runtime.operators.runtimefilter.GlobalRuntimeFilterBuilderOperatorFactory;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
 /** Batch {@link ExecNode} for runtime filter. */
 public class BatchExecRuntimeFilter extends ExecNodeBase<RowData>
         implements BatchExecNode<RowData> {
+    private static final Logger LOG = LoggerFactory.getLogger(BatchExecRuntimeFilter.class);
     private final int[] probeIndices;
+    private final boolean tryPushDown;
 
     public BatchExecRuntimeFilter(
             ReadableConfig tableConfig,
             List<InputProperty> inputProperties,
             LogicalType outputType,
             String description,
-            int[] probeIndices) {
+            int[] probeIndices,
+            boolean tryPushDown) {
         super(
                 ExecNodeContext.newNodeId(),
                 ExecNodeContext.newContext(BatchExecRuntimeFilter.class),
@@ -61,6 +72,7 @@ public class BatchExecRuntimeFilter extends ExecNodeBase<RowData>
                 outputType,
                 description);
         this.probeIndices = probeIndices;
+        this.tryPushDown = tryPushDown;
     }
 
     @Override
@@ -74,6 +86,30 @@ public class BatchExecRuntimeFilter extends ExecNodeBase<RowData>
                 (Transformation<RowData>) buildInputEdge.translateToPlan(planner);
         Transformation<RowData> probeTransform =
                 (Transformation<RowData>) probeInputEdge.translateToPlan(planner);
+
+        // set runtime filtering data listener id
+        if (tryPushDown && probeInputEdge.getSource() instanceof BatchExecTableSourceScan) {
+            BatchExecGlobalRuntimeFilterBuilder batchExecGlobalRuntimeFilterBuilder =
+                    (BatchExecGlobalRuntimeFilterBuilder)
+                            ignoreExchange(buildInputEdge.getSource());
+            BatchExecTableSourceScan tableSourceScan =
+                    (BatchExecTableSourceScan) probeInputEdge.getSource();
+            ((SourceTransformation<?, ?, ?>) probeTransform)
+                    .setRuntimeFilteringCoordinatorListeningID(
+                            tableSourceScan.getRuntimeFilteringDataListenerID());
+            ((GlobalRuntimeFilterBuilderOperatorFactory)
+                            ((OneInputTransformation<?, ?>)
+                                            batchExecGlobalRuntimeFilterBuilder.translateToPlan(
+                                                    planner))
+                                    .getOperatorFactory())
+                    .registerRuntimeFilteringDataListenerID(
+                            tableSourceScan.getRuntimeFilteringDataListenerID());
+        } else {
+            LOG.info(
+                    "Probe side: {}, tryPushDown: {}, and cannot push down runtime filter.",
+                    probeInputEdge.getSource().getDescription(),
+                    tryPushDown);
+        }
 
         final CodeGenOperatorFactory<RowData> operatorFactory =
                 RuntimeFilterCodeGenerator.gen(
@@ -122,5 +158,13 @@ public class BatchExecRuntimeFilter extends ExecNodeBase<RowData>
         leftInput.addOutput(1, runtimeFilterGenerator);
         rightInput.addOutput(2, runtimeFilterGenerator);
         return runtimeFilterGenerator;
+    }
+
+    private static ExecNode<?> ignoreExchange(ExecNode<?> execNode) {
+        if (execNode instanceof BatchExecExchange) {
+            return execNode.getInputEdges().get(0).getSource();
+        } else {
+            return execNode;
+        }
     }
 }

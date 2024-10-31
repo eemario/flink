@@ -161,6 +161,15 @@ public class OptimizerConfigOptions {
                             "A flag to enable or disable the runtime filter. "
                                     + "When it is true, the optimizer will try to inject a runtime filter for eligible join.");
 
+    @Documentation.ExcludeFromDocumentation
+    public static final ConfigOption<Boolean> TABLE_OPTIMIZER_RUNTIME_FILTER_PUSH_DOWN_ENABLED =
+            key("table.optimizer.runtime-filter.push-down.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "A flag to enable or disable the runtime filter push down. "
+                                    + "When it is true, the optimizer will try to push down a runtime filter to source when possible.");
+
     @Documentation.TableOption(execMode = Documentation.ExecMode.BATCH)
     public static final ConfigOption<AdaptiveBroadcastJoinStrategy>
             TABLE_OPTIMIZER_ADAPTIVE_BROADCAST_JOIN_STRATEGY =
