@@ -70,7 +70,7 @@ public class RuntimeFilterUtils {
     }
 
     public static RuntimeFilter convertRowDataToRuntimeFilter(
-            RowData rowData, RowDataSerializer rowDataSerializer) throws IOException {
+            RowData rowData, RowDataSerializer serializer) throws IOException {
         RuntimeFilterType runtimeFilterType = RuntimeFilterType.values()[rowData.getInt(1)];
         byte[] serializedFilter = rowData.getBinary(2);
         switch (runtimeFilterType) {
@@ -83,9 +83,9 @@ public class RuntimeFilterUtils {
                 int size = dataInputDeserializer.readInt();
                 HashSet<RowData> inFilter = new HashSet<>();
                 for (int i = 0; i < size; i++) {
-                    inFilter.add(rowDataSerializer.deserialize(dataInputDeserializer));
+                    inFilter.add(serializer.deserialize(dataInputDeserializer));
                 }
-                return new InFilterRuntimeFilter(inFilter, rowDataSerializer);
+                return new InFilterRuntimeFilter(inFilter, serializer);
             default:
                 throw new RuntimeException("Unknown runtime filter type.");
         }

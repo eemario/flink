@@ -54,13 +54,13 @@ public class BatchPhysicalGlobalRuntimeFilterBuilder extends SingleRel implement
             RelOptCluster cluster,
             RelTraitSet traits,
             RelNode input,
-            String[] buildFiledNames,
+            String[] buildFieldNames,
             int estimatedRowCount,
             int maxRowCount,
             int maxInFilterRowCount,
             RowType filterRowType) {
         super(cluster, traits, input);
-        this.buildFieldNames = buildFiledNames;
+        this.buildFieldNames = buildFieldNames;
         this.estimatedRowCount = estimatedRowCount;
         this.maxRowCount = maxRowCount;
         this.maxInFilterRowCount = maxInFilterRowCount;

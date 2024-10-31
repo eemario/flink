@@ -20,7 +20,6 @@ package org.apache.flink.table.planner.plan.nodes.exec.batch.runtimefilter;
 
 import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.configuration.ReadableConfig;
-import org.apache.flink.streaming.api.operators.SimpleOperatorFactory;
 import org.apache.flink.streaming.api.operators.StreamOperatorFactory;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.planner.delegation.PlannerBase;
@@ -32,9 +31,8 @@ import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeContext;
 import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
 import org.apache.flink.table.planner.plan.nodes.exec.batch.BatchExecNode;
 import org.apache.flink.table.planner.plan.nodes.exec.utils.ExecNodeUtil;
-import org.apache.flink.table.runtime.operators.runtimefilter.GlobalRuntimeFilterBuilderOperator;
+import org.apache.flink.table.runtime.operators.runtimefilter.GlobalRuntimeFilterBuilderOperatorFactory;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
-import org.apache.flink.table.runtime.typeutils.RowDataSerializer;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
 
@@ -79,15 +77,10 @@ public class BatchExecGlobalRuntimeFilterBuilder extends ExecNodeBase<RowData>
         ExecEdge inputEdge = getInputEdges().get(0);
         Transformation<RowData> inputTransform =
                 (Transformation<RowData>) inputEdge.translateToPlan(planner);
-        RowDataSerializer rowDataSerializer = new RowDataSerializer(filterRowType);
 
         StreamOperatorFactory<RowData> factory =
-                SimpleOperatorFactory.of(
-                        new GlobalRuntimeFilterBuilderOperator(
-                                estimatedRowCount,
-                                maxRowCount,
-                                maxInFilterRowCount,
-                                rowDataSerializer));
+                new GlobalRuntimeFilterBuilderOperatorFactory(
+                        estimatedRowCount, maxRowCount, maxInFilterRowCount, filterRowType);
 
         return ExecNodeUtil.createOneInputTransformation(
                 inputTransform,

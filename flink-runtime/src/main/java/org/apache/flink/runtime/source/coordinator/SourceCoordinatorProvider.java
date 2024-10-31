@@ -46,6 +46,7 @@ public class SourceCoordinatorProvider<SplitT extends SourceSplit>
     private final int numWorkerThreads;
     private final WatermarkAlignmentParams alignmentParams;
     @Nullable private final String coordinatorListeningID;
+    @Nullable private final String runtimeFilteringCoordinatorListeningID;
 
     /**
      * Construct the {@link SourceCoordinatorProvider}.
@@ -65,12 +66,31 @@ public class SourceCoordinatorProvider<SplitT extends SourceSplit>
             int numWorkerThreads,
             WatermarkAlignmentParams alignmentParams,
             @Nullable String coordinatorListeningID) {
+        this(
+                operatorName,
+                operatorID,
+                source,
+                numWorkerThreads,
+                alignmentParams,
+                coordinatorListeningID,
+                null);
+    }
+
+    public SourceCoordinatorProvider(
+            String operatorName,
+            OperatorID operatorID,
+            Source<?, SplitT, ?> source,
+            int numWorkerThreads,
+            WatermarkAlignmentParams alignmentParams,
+            @Nullable String coordinatorListeningID,
+            @Nullable String runtimeFilteringCoordinatorListeningID) {
         super(operatorID);
         this.operatorName = operatorName;
         this.source = source;
         this.numWorkerThreads = numWorkerThreads;
         this.alignmentParams = alignmentParams;
         this.coordinatorListeningID = coordinatorListeningID;
+        this.runtimeFilteringCoordinatorListeningID = runtimeFilteringCoordinatorListeningID;
     }
 
     @Override
@@ -95,7 +115,8 @@ public class SourceCoordinatorProvider<SplitT extends SourceSplit>
                 sourceCoordinatorContext,
                 context.getCoordinatorStore(),
                 alignmentParams,
-                coordinatorListeningID);
+                coordinatorListeningID,
+                runtimeFilteringCoordinatorListeningID);
     }
 
     /**

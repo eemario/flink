@@ -45,6 +45,7 @@ public class SourceTransformation<OUT, SplitT extends SourceSplit, EnumChkT>
 
     private ChainingStrategy chainingStrategy = ChainingStrategy.DEFAULT_CHAINING_STRATEGY;
     private @Nullable String coordinatorListeningID;
+    private @Nullable String runtimeFilteringCoordinatorListeningID;
 
     /**
      * Creates a new {@code Transformation} with the given name, output type and parallelism.
@@ -126,5 +127,13 @@ public class SourceTransformation<OUT, SplitT extends SourceSplit, EnumChkT>
         if (source instanceof LineageVertexProvider) {
             setLineageVertex(((LineageVertexProvider) source).getLineageVertex());
         }
+    }
+
+    public void setRuntimeFilteringCoordinatorListeningID(@Nullable String coordinatorListeningID) {
+        this.runtimeFilteringCoordinatorListeningID = coordinatorListeningID;
+    }
+
+    public String getRuntimeFilteringCoordinatorListeningID() {
+        return runtimeFilteringCoordinatorListeningID;
     }
 }
