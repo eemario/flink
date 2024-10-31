@@ -180,6 +180,15 @@ public class OptimizerConfigOptions {
                             "A flag to enable or disable the runtime filter. "
                                     + "When it is true, the optimizer will try to inject a runtime filter for eligible join.");
 
+    @Documentation.ExcludeFromDocumentation
+    public static final ConfigOption<Boolean> TABLE_OPTIMIZER_RUNTIME_FILTER_PUSH_DOWN_ENABLED =
+            key("table.optimizer.runtime-filter.push-down.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "A flag to enable or disable the runtime filter push down. "
+                                    + "When it is true, the optimizer will try to push down a runtime filter to source when possible.");
+
     /**
      * The data volume of build side needs to be under this value. If the data volume of build side
      * is too large, the building overhead will be too large, which may lead to a negative impact on

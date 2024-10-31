@@ -18,8 +18,8 @@
 package org.apache.flink.table.planner.plan.fusion.spec
 
 import org.apache.flink.table.data.binary.BinaryRowData
-import org.apache.flink.table.planner.codegen.CodeGenUtils.{className, newName, newNames}
 import org.apache.flink.table.planner.codegen.{CodeGeneratorContext, GeneratedExpression}
+import org.apache.flink.table.planner.codegen.CodeGenUtils.{className, newName, newNames}
 import org.apache.flink.table.planner.plan.fusion.{OpFusionCodegenSpecBase, OpFusionContext}
 import org.apache.flink.table.planner.typeutils.RowTypeUtils
 import org.apache.flink.table.runtime.operators.runtimefilter.util.{RuntimeFilter, RuntimeFilterUtils}

@@ -127,6 +127,8 @@ public class SourceCoordinator<SplitT extends SourceSplit, EnumChkT>
      */
     @Nullable private final String coordinatorListeningID;
 
+    @Nullable private final String runtimeFilteringCoordinatorListeningID;
+
     public SourceCoordinator(
             String operatorName,
             Source<?, SplitT, EnumChkT> source,
@@ -138,6 +140,7 @@ public class SourceCoordinator<SplitT extends SourceSplit, EnumChkT>
                 context,
                 coordinatorStore,
                 WatermarkAlignmentParams.WATERMARK_ALIGNMENT_DISABLED,
+                null,
                 null);
     }
 
@@ -148,6 +151,24 @@ public class SourceCoordinator<SplitT extends SourceSplit, EnumChkT>
             CoordinatorStore coordinatorStore,
             WatermarkAlignmentParams watermarkAlignmentParams,
             @Nullable String coordinatorListeningID) {
+        this(
+                operatorName,
+                source,
+                context,
+                coordinatorStore,
+                watermarkAlignmentParams,
+                coordinatorListeningID,
+                null);
+    }
+
+    public SourceCoordinator(
+            String operatorName,
+            Source<?, SplitT, EnumChkT> source,
+            SourceCoordinatorContext<SplitT> context,
+            CoordinatorStore coordinatorStore,
+            WatermarkAlignmentParams watermarkAlignmentParams,
+            @Nullable String coordinatorListeningID,
+            @Nullable String runtimeFilteringCoordinatorListeningID) {
         this.operatorName = operatorName;
         this.source = source;
         this.enumCheckpointSerializer = source.getEnumeratorCheckpointSerializer();
@@ -155,6 +176,7 @@ public class SourceCoordinator<SplitT extends SourceSplit, EnumChkT>
         this.coordinatorStore = coordinatorStore;
         this.watermarkAlignmentParams = watermarkAlignmentParams;
         this.coordinatorListeningID = coordinatorListeningID;
+        this.runtimeFilteringCoordinatorListeningID = runtimeFilteringCoordinatorListeningID;
 
         if (watermarkAlignmentParams.isEnabled()
                 && context.isConcurrentExecutionAttemptsSupported()) {
@@ -244,36 +266,11 @@ public class SourceCoordinator<SplitT extends SourceSplit, EnumChkT>
         runInEventLoop(() -> enumerator.start(), "starting the SplitEnumerator.");
 
         if (coordinatorListeningID != null) {
-            coordinatorStore.compute(
-                    coordinatorListeningID,
-                    (key, oldValue) -> {
-                        // The value for a listener ID can be a source coordinator listening to an
-                        // event, or an event waiting to be retrieved
-                        if (oldValue == null || oldValue instanceof OperatorCoordinator) {
-                            // The coordinator has not registered or needs to be recreated after
-                            // global failover.
-                            return this;
-                        } else {
-                            checkState(
-                                    oldValue instanceof OperatorEvent,
-                                    "The existing value for "
-                                            + coordinatorStore
-                                            + "is expected to be an operator event, but it is in fact "
-                                            + oldValue);
-                            LOG.info(
-                                    "Handling event {} received before the source coordinator with ID {} is registered",
-                                    oldValue,
-                                    coordinatorListeningID);
-                            handleEventFromOperator(0, 0, (OperatorEvent) oldValue);
+            handleCoordinatorListeningID(coordinatorListeningID);
+        }
 
-                            // Since for non-global failover the coordinator will not be recreated
-                            // and for global failover both the sender and receiver need to restart,
-                            // the coordinator will receive the event only once.
-                            // As the event has been processed, it can be removed safely and there's
-                            // no need to register the coordinator for further events as well.
-                            return null;
-                        }
-                    });
+        if (runtimeFilteringCoordinatorListeningID != null) {
+            handleCoordinatorListeningID(runtimeFilteringCoordinatorListeningID);
         }
 
         if (watermarkAlignmentParams.isEnabled()) {
@@ -286,6 +283,39 @@ public class SourceCoordinator<SplitT extends SourceSplit, EnumChkT>
                     watermarkAlignmentParams.getUpdateInterval(),
                     TimeUnit.MILLISECONDS);
         }
+    }
+
+    private void handleCoordinatorListeningID(String coordinatorListeningID) {
+        coordinatorStore.compute(
+                coordinatorListeningID,
+                (key, oldValue) -> {
+                    // The value for a listener ID can be a source coordinator listening to an
+                    // event, or an event waiting to be retrieved
+                    if (oldValue == null || oldValue instanceof OperatorCoordinator) {
+                        // The coordinator has not registered or needs to be recreated after
+                        // global failover.
+                        return this;
+                    } else {
+                        checkState(
+                                oldValue instanceof OperatorEvent,
+                                "The existing value for "
+                                        + coordinatorStore
+                                        + "is expected to be an operator event, but it is in fact "
+                                        + oldValue);
+                        LOG.info(
+                                "Handling event {} received before the source coordinator with ID {} is registered",
+                                oldValue,
+                                coordinatorListeningID);
+                        handleEventFromOperator(0, 0, (OperatorEvent) oldValue);
+
+                        // Since for non-global failover the coordinator will not be recreated
+                        // and for global failover both the sender and receiver need to restart,
+                        // the coordinator will receive the event only once.
+                        // As the event has been processed, it can be removed safely and there's
+                        // no need to register the coordinator for further events as well.
+                        return null;
+                    }
+                });
     }
 
     @Override

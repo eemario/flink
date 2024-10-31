@@ -60,6 +60,7 @@ public class SourceOperatorFactory<OUT> extends AbstractStreamOperatorFactory<OU
     private final int numCoordinatorWorkerThread;
 
     private @Nullable String coordinatorListeningID;
+    private @Nullable String runtimeFilteringCoordinatorListeningID;
 
     public SourceOperatorFactory(
             Source<OUT, ?, ?> source, WatermarkStrategy<OUT> watermarkStrategy) {
@@ -90,6 +91,10 @@ public class SourceOperatorFactory<OUT> extends AbstractStreamOperatorFactory<OU
 
     public void setCoordinatorListeningID(@Nullable String coordinatorListeningID) {
         this.coordinatorListeningID = coordinatorListeningID;
+    }
+
+    public void setRuntimeFilteringCoordinatorListeningID(@Nullable String coordinatorListeningID) {
+        this.runtimeFilteringCoordinatorListeningID = coordinatorListeningID;
     }
 
     @Override
@@ -141,7 +146,8 @@ public class SourceOperatorFactory<OUT> extends AbstractStreamOperatorFactory<OU
                 source,
                 numCoordinatorWorkerThread,
                 watermarkStrategy.getAlignmentParameters(),
-                coordinatorListeningID);
+                coordinatorListeningID,
+                runtimeFilteringCoordinatorListeningID);
     }
 
     @SuppressWarnings("rawtypes")

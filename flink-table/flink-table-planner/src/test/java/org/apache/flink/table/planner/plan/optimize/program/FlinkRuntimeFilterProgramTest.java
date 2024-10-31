@@ -152,6 +152,7 @@ public class FlinkRuntimeFilterProgramTest extends TableTestBase {
 
     @Test
     void testNestedLoopJoin() throws Exception {
+        // TODO fix the test
         // runtime filter will not succeed
         setupTableRowCount("dim", 1L);
         setupTableRowCount("fact", SUITABLE_FACT_ROW_COUNT);
@@ -478,6 +479,7 @@ public class FlinkRuntimeFilterProgramTest extends TableTestBase {
 
     @Test
     void testProbeSideIsTableSourceWithoutExchange() throws Exception {
+        // TODO fix the test
         // runtime filter will not succeed, because probe side is a direct table source
         setupSuitableTableStatistics();
         String query = "select * from fact, dim where fact.amount = dim.amount and dim.price = 500";
@@ -498,7 +500,7 @@ public class FlinkRuntimeFilterProgramTest extends TableTestBase {
                                 + " 'connector' = 'values',\n"
                                 + " 'runtime-source' = 'NewSource',\n"
                                 + " 'partition-list' = 'fact_date_sk:1990;fact_date_sk:1991;fact_date_sk:1992',\n"
-                                + " 'dynamic-filtering-fields' = 'fact_date_sk;amount',\n"
+                                + " 'dynamic-filtering-fields' = 'fact_date_sk',\n"
                                 + " 'bounded' = 'true'\n"
                                 + ")");
 

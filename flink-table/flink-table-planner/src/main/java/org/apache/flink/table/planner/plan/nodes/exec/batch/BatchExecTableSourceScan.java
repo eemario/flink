@@ -49,6 +49,7 @@ public class BatchExecTableSourceScan extends CommonExecTableSourceScan
 
     // Avoids creating different ids if translated multiple times
     private final String dynamicFilteringDataListenerID = UUID.randomUUID().toString();
+    private final String runtimeFilteringDataListenerID = UUID.randomUUID().toString();
     private final ReadableConfig tableConfig;
 
     // This constructor can be used only when table source scan has
@@ -88,6 +89,10 @@ public class BatchExecTableSourceScan extends CommonExecTableSourceScan
 
     public String getDynamicFilteringDataListenerID() {
         return dynamicFilteringDataListenerID;
+    }
+
+    public String getRuntimeFilteringDataListenerID() {
+        return runtimeFilteringDataListenerID;
     }
 
     @Override
