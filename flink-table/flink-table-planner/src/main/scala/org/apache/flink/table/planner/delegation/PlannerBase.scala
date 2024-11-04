@@ -38,6 +38,7 @@ import org.apache.flink.table.planner.catalog.CatalogManagerCalciteSchema
 import org.apache.flink.table.planner.connectors.DynamicSinkUtils
 import org.apache.flink.table.planner.connectors.DynamicSinkUtils.validateSchemaAndApplyImplicitCast
 import org.apache.flink.table.planner.hint.FlinkHints
+import org.apache.flink.table.planner.incremental.IncrementalProcessingHelper
 import org.apache.flink.table.planner.operations.PlannerQueryOperation
 import org.apache.flink.table.planner.plan.nodes.calcite.LogicalLegacySink
 import org.apache.flink.table.planner.plan.nodes.exec.{ExecNodeGraph, ExecNodeGraphGenerator}
@@ -175,12 +176,23 @@ abstract class PlannerBase(
     }
 
     val relNodes = modifyOperations.map(translateToRel)
-    val optimizedRelNodes = optimize(relNodes)
+    var relNodesToOptimize = relNodes
+    val incrementalPlan = IncrementalProcessingHelper.tryGenerateIncrementalProcessingPlan(
+      relNodes,
+      tableConfig,
+      isStreamingMode)
+    if (incrementalPlan != null) {
+      relNodesToOptimize = incrementalPlan.getRelNodes
+    }
+    val optimizedRelNodes = optimize(relNodesToOptimize)
     val execGraph = translateToExecNodeGraph(optimizedRelNodes, isCompiled = false)
     val transformations = translateToPlan(execGraph)
     afterTranslation()
-    // TODO pass source offsets and incremental
-    new PlanningResult(transformations, null, false)
+    if (incrementalPlan != null) {
+      new PlanningResult(transformations, incrementalPlan.getEndOffsets, true)
+    } else {
+      new PlanningResult(transformations)
+    }
   }
 
   /** Converts a relational tree of [[ModifyOperation]] into a Calcite relational expression. */
