@@ -18,6 +18,7 @@
 package org.apache.flink.table.api.bridge.scala.internal
 
 import org.apache.flink.api.dag.Transformation
+import org.apache.flink.incremental.PlanningResult
 import org.apache.flink.streaming.api.datastream.DataStream
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment
 import org.apache.flink.table.api.{createTypeInformation, TableConfig}
@@ -89,8 +90,8 @@ class StreamTableEnvironmentImplTest {
   }
 
   private class TestPlanner(transformation: Transformation[_]) extends PlannerMock {
-    override def translate(modifyOperations: JList[ModifyOperation]): JList[Transformation[_]] = {
-      Collections.singletonList(transformation)
+    override def translate(modifyOperations: JList[ModifyOperation]): PlanningResult = {
+      new PlanningResult(Collections.singletonList(transformation))
     }
   }
 

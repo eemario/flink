@@ -18,7 +18,7 @@
 
 package org.apache.flink.table.api;
 
-import org.apache.flink.api.dag.Transformation;
+import org.apache.flink.incremental.PlanningResult;
 import org.apache.flink.streaming.api.graph.StreamGraph;
 import org.apache.flink.table.api.internal.TableEnvironmentImpl;
 import org.apache.flink.table.operations.CollectModifyOperation;
@@ -113,12 +113,12 @@ public class QueryOperationSqlSerializationTest implements TableTestProgramRunne
 
         QueryOperation queryOperation = table.getQueryOperation();
         CollectModifyOperation sinkOperation = new CollectModifyOperation(queryOperation);
-        List<Transformation<?>> transformations =
+        PlanningResult planningResult =
                 env.getPlanner().translate(Collections.singletonList(sinkOperation));
 
         StreamGraph streamGraph =
                 (StreamGraph)
-                        env.generatePipelineFromQueryOperation(queryOperation, transformations);
+                        env.generatePipelineFromQueryOperation(queryOperation, planningResult);
 
         assertThat(streamGraph.getJobName()).isEqualTo(sqlStep.sql);
     }

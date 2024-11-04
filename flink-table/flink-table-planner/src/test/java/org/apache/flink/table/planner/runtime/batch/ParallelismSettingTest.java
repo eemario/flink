@@ -309,8 +309,8 @@ public class ParallelismSettingTest extends TableTestBase {
         List<Operation> operations = util.getPlanner().getParser().parse(statement);
         List<Transformation<?>> transformations =
                 util.getPlanner()
-                        .translate(
-                                Collections.singletonList((ModifyOperation) (operations.get(0))));
+                        .translate(Collections.singletonList((ModifyOperation) (operations.get(0))))
+                        .getTransformations();
         assertThat(transformations).hasSize(1);
         return transformations.get(0);
     }

@@ -20,6 +20,7 @@ package org.apache.flink.table.planner.delegation
 import org.apache.flink.api.common.RuntimeExecutionMode
 import org.apache.flink.api.dag.Transformation
 import org.apache.flink.configuration.ExecutionOptions
+import org.apache.flink.incremental.PlanningResult
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectReader
 import org.apache.flink.streaming.api.graph.StreamGraph
 import org.apache.flink.table.api._
@@ -177,7 +178,7 @@ class StreamPlanner(
 
     // We pass only the configuration to avoid reconfiguration with the rootConfiguration
     val streamGraph = executor
-      .createPipeline(transformations, tableConfig.getConfiguration, null)
+      .createPipeline(new PlanningResult(transformations), tableConfig.getConfiguration, null)
       .asInstanceOf[StreamGraph]
 
     val sb = new StringBuilder

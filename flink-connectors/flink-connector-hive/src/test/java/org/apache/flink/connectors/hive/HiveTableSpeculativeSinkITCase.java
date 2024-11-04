@@ -170,7 +170,8 @@ class HiveTableSpeculativeSinkITCase {
                                                                             tEnvImpl.getParser()
                                                                                     .parse(
                                                                                             insertQuery)
-                                                                                    .get(0))))
+                                                                                    .get(0)))
+                                                    .getTransformations())
                                     .getJobGraph();
 
                     for (JobVertex jobVertex : jobGraph.getVertices()) {

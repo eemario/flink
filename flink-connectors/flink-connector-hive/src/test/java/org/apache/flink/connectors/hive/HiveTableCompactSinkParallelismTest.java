@@ -151,7 +151,8 @@ class HiveTableCompactSinkParallelismTest {
         planner.getExecEnv().setParallelism(10);
         List<Operation> operations = planner.getParser().parse(statement);
         List<Transformation<?>> transformations =
-                planner.translate(Collections.singletonList((ModifyOperation) (operations.get(0))));
+                planner.translate(Collections.singletonList((ModifyOperation) (operations.get(0))))
+                        .getTransformations();
         assertThat(transformations).hasSize(1);
         Transformation<?> rootTransformation = transformations.get(0);
         Transformation<?> compactTransformation =

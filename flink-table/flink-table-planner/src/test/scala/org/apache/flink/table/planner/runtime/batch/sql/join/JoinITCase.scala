@@ -224,6 +224,7 @@ class JoinITCase extends BatchTestBase {
       val transforms = testingTEnv.getPlanner
         .asInstanceOf[PlannerBase]
         .translate(testingStmtSet.getOperations)
+        .getTransformations
       var haveTwoOp = false
 
       @scala.annotation.tailrec

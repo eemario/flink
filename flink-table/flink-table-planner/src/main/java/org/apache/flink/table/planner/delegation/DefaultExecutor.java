@@ -22,12 +22,12 @@ import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.RuntimeExecutionMode;
 import org.apache.flink.api.dag.Pipeline;
-import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.configuration.ExecutionOptions;
 import org.apache.flink.configuration.PipelineOptions;
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.core.execution.JobClient;
 import org.apache.flink.core.execution.JobStatusHook;
+import org.apache.flink.incremental.PlanningResult;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.graph.StreamGraph;
 import org.apache.flink.table.api.TableException;
@@ -62,16 +62,16 @@ public class DefaultExecutor implements Executor {
 
     @Override
     public Pipeline createPipeline(
-            List<Transformation<?>> transformations,
+            PlanningResult planningResult,
             ReadableConfig tableConfiguration,
             @Nullable String defaultJobName) {
         return createPipeline(
-                transformations, tableConfiguration, defaultJobName, Collections.emptyList());
+                planningResult, tableConfiguration, defaultJobName, Collections.emptyList());
     }
 
     @Override
     public Pipeline createPipeline(
-            List<Transformation<?>> transformations,
+            PlanningResult planningResult,
             ReadableConfig tableConfiguration,
             @Nullable String defaultJobName,
             List<JobStatusHook> jobStatusHookList) {
@@ -92,7 +92,8 @@ public class DefaultExecutor implements Executor {
                 throw new TableException(String.format("Unsupported runtime mode: %s", mode));
         }
 
-        final StreamGraph streamGraph = executionEnvironment.generateStreamGraph(transformations);
+        final StreamGraph streamGraph =
+                executionEnvironment.generateStreamGraph(planningResult.getTransformations());
         setJobName(streamGraph, defaultJobName);
         for (JobStatusHook hook : jobStatusHookList) {
             streamGraph.registerJobStatusHook(hook);
