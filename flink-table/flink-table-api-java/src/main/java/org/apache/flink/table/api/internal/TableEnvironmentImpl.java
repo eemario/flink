@@ -26,6 +26,7 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.execution.JobClient;
 import org.apache.flink.core.execution.JobStatusHook;
 import org.apache.flink.core.fs.Path;
+import org.apache.flink.incremental.PlanningResult;
 import org.apache.flink.table.api.CompiledPlan;
 import org.apache.flink.table.api.DataTypes;
 import org.apache.flink.table.api.EnvironmentSettings;
@@ -797,7 +798,7 @@ public class TableEnvironmentImpl implements TableEnvironmentInternal {
             return executeQueryOperation(
                     dqlCachedPlan.getOperation(),
                     dqlCachedPlan.getSinkOperation(),
-                    dqlCachedPlan.getTransformations());
+                    new PlanningResult(dqlCachedPlan.getTransformations()));
         }
         throw new TableException(
                 String.format("Unsupported CachedPlan type: %s.", cachedPlan.getClass()));
@@ -839,7 +840,7 @@ public class TableEnvironmentImpl implements TableEnvironmentInternal {
         List<Transformation<?>> transformations = planner.translatePlan(plan);
         List<String> sinkIdentifierNames =
                 deduplicateSinkIdentifierNames(plan.getSinkIdentifiers());
-        return executeInternal(transformations, sinkIdentifierNames);
+        return executeInternal(new PlanningResult(transformations), sinkIdentifierNames);
     }
 
     private CompiledPlan compilePlanAndWrite(
@@ -927,9 +928,9 @@ public class TableEnvironmentImpl implements TableEnvironmentInternal {
             }
         }
 
-        List<Transformation<?>> transformations = translate(mapOperations);
+        PlanningResult planningResult = translate(mapOperations);
         List<String> sinkIdentifierNames = extractSinkIdentifierNames(mapOperations);
-        return executeInternal(transformations, sinkIdentifierNames, jobStatusHookList);
+        return executeInternal(planningResult, sinkIdentifierNames, jobStatusHookList);
     }
 
     private ModifyOperation getModifyOperation(
@@ -1062,22 +1063,23 @@ public class TableEnvironmentImpl implements TableEnvironmentInternal {
     }
 
     private TableResultInternal executeInternal(
-            List<Transformation<?>> transformations, List<String> sinkIdentifierNames) {
-        return executeInternal(transformations, sinkIdentifierNames, Collections.emptyList());
+            PlanningResult planningResult, List<String> sinkIdentifierNames) {
+        return executeInternal(planningResult, sinkIdentifierNames, Collections.emptyList());
     }
 
     private TableResultInternal executeInternal(
-            List<Transformation<?>> transformations,
+            PlanningResult planningResult,
             List<String> sinkIdentifierNames,
             List<JobStatusHook> jobStatusHookList) {
         final String defaultJobName = "insert-into_" + String.join(",", sinkIdentifierNames);
 
         resourceManager.addJarConfiguration(tableConfig);
 
+        List<Transformation<?>> transformations = planningResult.getTransformations();
         // We pass only the configuration to avoid reconfiguration with the rootConfiguration
         Pipeline pipeline =
                 execEnv.createPipeline(
-                        transformations,
+                        planningResult,
                         tableConfig.getConfiguration(),
                         defaultJobName,
                         jobStatusHookList);
@@ -1117,10 +1119,10 @@ public class TableEnvironmentImpl implements TableEnvironmentInternal {
     private TableResultInternal executeQueryOperation(
             QueryOperation operation,
             CollectModifyOperation sinkOperation,
-            List<Transformation<?>> transformations) {
+            PlanningResult planningResult) {
         resourceManager.addJarConfiguration(tableConfig);
 
-        Pipeline pipeline = generatePipelineFromQueryOperation(operation, transformations);
+        Pipeline pipeline = generatePipelineFromQueryOperation(operation, planningResult);
         try {
             JobClient jobClient = execEnv.executeAsync(pipeline);
             ResultProvider resultProvider = sinkOperation.getSelectResultProvider();
@@ -1141,7 +1143,9 @@ public class TableEnvironmentImpl implements TableEnvironmentInternal {
                                     getConfig().get(TableConfigOptions.DISPLAY_MAX_COLUMN_WIDTH),
                                     false,
                                     isStreamingMode))
-                    .setCachedPlan(new DQLCachedPlan(operation, sinkOperation, transformations))
+                    .setCachedPlan(
+                            new DQLCachedPlan(
+                                    operation, sinkOperation, planningResult.getTransformations()))
                     .build();
         } catch (Exception e) {
             throw new TableException("Failed to execute sql", e);
@@ -1182,9 +1186,8 @@ public class TableEnvironmentImpl implements TableEnvironmentInternal {
         } else if (operation instanceof QueryOperation) {
             QueryOperation queryOperation = (QueryOperation) operation;
             CollectModifyOperation sinkOperation = new CollectModifyOperation(queryOperation);
-            List<Transformation<?>> transformations =
-                    translate(Collections.singletonList(sinkOperation));
-            return executeQueryOperation(queryOperation, sinkOperation, transformations);
+            PlanningResult planningResult = translate(Collections.singletonList(sinkOperation));
+            return executeQueryOperation(queryOperation, sinkOperation, planningResult);
         } else if (operation instanceof ExecutePlanOperation) {
             ExecutePlanOperation executePlanOperation = (ExecutePlanOperation) operation;
             try {
@@ -1236,7 +1239,7 @@ public class TableEnvironmentImpl implements TableEnvironmentInternal {
     /** generate execution {@link Pipeline} from {@link QueryOperation}. */
     @VisibleForTesting
     public Pipeline generatePipelineFromQueryOperation(
-            QueryOperation operation, List<Transformation<?>> transformations) {
+            QueryOperation operation, PlanningResult planningResult) {
         String defaultJobName = "collect";
 
         try {
@@ -1247,7 +1250,7 @@ public class TableEnvironmentImpl implements TableEnvironmentInternal {
 
         // We pass only the configuration to avoid reconfiguration with the rootConfiguration
         return execEnv.createPipeline(
-                transformations, tableConfig.getConfiguration(), defaultJobName);
+                planningResult, tableConfig.getConfiguration(), defaultJobName);
     }
 
     /**
@@ -1348,7 +1351,7 @@ public class TableEnvironmentImpl implements TableEnvironmentInternal {
         return queryOperation;
     }
 
-    protected List<Transformation<?>> translate(List<ModifyOperation> modifyOperations) {
+    protected PlanningResult translate(List<ModifyOperation> modifyOperations) {
         return planner.translate(modifyOperations);
     }
 

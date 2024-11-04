@@ -1067,7 +1067,7 @@ abstract class TableTestUtilBase(test: TableTestBase, isStreamingMode: Boolean) 
 
     val testStmtSet = stmtSet.asInstanceOf[StatementSetImpl[_]]
     val operations = testStmtSet.getOperations;
-    getPlanner.translate(operations)
+    getPlanner.translate(operations).getTransformations
   }
 
   /**

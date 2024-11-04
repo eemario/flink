@@ -21,6 +21,7 @@ package org.apache.flink.table.delegation;
 import org.apache.flink.annotation.Experimental;
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.dag.Transformation;
+import org.apache.flink.incremental.PlanningResult;
 import org.apache.flink.table.api.ExplainDetail;
 import org.apache.flink.table.api.ExplainFormat;
 import org.apache.flink.table.api.PlanReference;
@@ -74,9 +75,10 @@ public interface Planner {
      *
      * @param modifyOperations list of relational operations to plan, optimize and convert in a
      *     single run.
-     * @return list of corresponding {@link Transformation}s.
+     * @return planningResult containing list of corresponding {@link Transformation}s with other
+     *     information.
      */
-    List<Transformation<?>> translate(List<ModifyOperation> modifyOperations);
+    PlanningResult translate(List<ModifyOperation> modifyOperations);
 
     /**
      * Returns the AST of the specified Table API and SQL queries and the execution plan to compute
