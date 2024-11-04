@@ -72,6 +72,7 @@ import org.apache.flink.table.connector.source.abilities.SupportsLimitPushDown;
 import org.apache.flink.table.connector.source.abilities.SupportsPartitionPushDown;
 import org.apache.flink.table.connector.source.abilities.SupportsProjectionPushDown;
 import org.apache.flink.table.connector.source.abilities.SupportsReadingMetadata;
+import org.apache.flink.table.connector.source.abilities.SupportsScanRange;
 import org.apache.flink.table.connector.source.abilities.SupportsSourceWatermark;
 import org.apache.flink.table.connector.source.abilities.SupportsWatermarkPushDown;
 import org.apache.flink.table.connector.source.lookup.AsyncLookupFunctionProvider;
@@ -476,6 +477,12 @@ public final class TestValuesTableFactory
     private static final ConfigOption<String> SINK_CHANGELOG_MODE_ENFORCED =
             ConfigOptions.key("sink-changelog-mode-enforced").stringType().noDefaultValue();
 
+    private static final ConfigOption<Boolean> ENABLE_SCAN_RANGE =
+            ConfigOptions.key("enable-scan-range").booleanType().defaultValue(false);
+
+    private static final ConfigOption<Boolean> ENABLE_OVERWRITE =
+            ConfigOptions.key("enable-overwrite").booleanType().defaultValue(false);
+
     private static final ConfigOption<Integer> SOURCE_PARALLELISM = FactoryUtil.SOURCE_PARALLELISM;
 
     private static final ConfigOption<Integer> SINK_PARALLELISM = FactoryUtil.SINK_PARALLELISM;
@@ -543,6 +550,8 @@ public final class TestValuesTableFactory
                 isFinite ? TerminatingLogic.FINITE : TerminatingLogic.INFINITE;
         Boundedness boundedness =
                 isBounded ? Boundedness.BOUNDED : Boundedness.CONTINUOUS_UNBOUNDED;
+
+        boolean enableScanRange = helper.getOptions().get(ENABLE_SCAN_RANGE);
 
         if (sourceClass.equals("DEFAULT")) {
             if (internalData) {
@@ -629,6 +638,32 @@ public final class TestValuesTableFactory
                             null);
                 }
             } else {
+                if (enableScanRange) {
+                    return new TestValuesScanLookupTableSourceWithScanRange(
+                            context.getCatalogTable().getResolvedSchema().toPhysicalRowDataType(),
+                            producedDataType,
+                            changelogMode,
+                            boundedness,
+                            terminating,
+                            runtimeSource,
+                            failingSource,
+                            partition2Rows,
+                            isAsync,
+                            lookupFunctionClass,
+                            nestedProjectionSupported,
+                            null,
+                            Collections.emptyList(),
+                            filterableFieldsSet,
+                            dynamicFilteringFieldsSet,
+                            numElementToSkip,
+                            Long.MAX_VALUE,
+                            partitions,
+                            readableMetadata,
+                            null,
+                            cache,
+                            reloadTrigger,
+                            lookupThreshold);
+                }
                 return new TestValuesScanLookupTableSource(
                         context.getCatalogTable().getResolvedSchema().toPhysicalRowDataType(),
                         producedDataType,
@@ -694,10 +729,28 @@ public final class TestValuesTableFactory
                 TableSchemaUtils.getPhysicalSchema(context.getCatalogTable().getSchema());
 
         boolean requireBucketCount = helper.getOptions().get(SINK_BUCKET_COUNT_REQUIRED);
+
+        boolean enableOverwrite = helper.getOptions().get(ENABLE_OVERWRITE);
+
         if (sinkClass.equals("DEFAULT")) {
             int rowTimeIndex =
                     validateAndExtractRowtimeIndex(
                             context.getCatalogTable(), dropLateEvent, isInsertOnly);
+            if (enableOverwrite) {
+                return new TestValuesTableSinkWithOverwriteEnabled(
+                        consumedType,
+                        primaryKeyIndices,
+                        context.getObjectIdentifier().getObjectName(),
+                        isInsertOnly,
+                        runtimeSink,
+                        expectedNum,
+                        writableMetadata,
+                        parallelism,
+                        changelogMode,
+                        rowTimeIndex,
+                        tableSchema,
+                        requireBucketCount);
+            }
             return new TestValuesTableSink(
                     consumedType,
                     primaryKeyIndices,
@@ -774,7 +827,9 @@ public final class TestValuesTableFactory
                         FULL_CACHE_PERIODIC_RELOAD_INTERVAL,
                         FULL_CACHE_PERIODIC_RELOAD_SCHEDULE_MODE,
                         FULL_CACHE_TIMED_RELOAD_ISO_TIME,
-                        FULL_CACHE_TIMED_RELOAD_INTERVAL_IN_DAYS));
+                        FULL_CACHE_TIMED_RELOAD_INTERVAL_IN_DAYS,
+                        ENABLE_SCAN_RANGE,
+                        ENABLE_OVERWRITE));
     }
 
     private static int validateAndExtractRowtimeIndex(
@@ -1962,6 +2017,66 @@ public final class TestValuesTableFactory
         }
     }
 
+    /** Values {@link SupportsScanRange} for incremental processing. */
+    public static class TestValuesScanLookupTableSourceWithScanRange
+            extends TestValuesScanLookupTableSource implements SupportsScanRange {
+
+        private TestValuesScanLookupTableSourceWithScanRange(
+                DataType originType,
+                DataType producedDataType,
+                ChangelogMode changelogMode,
+                Boundedness boundedness,
+                TerminatingLogic terminating,
+                String runtimeSource,
+                boolean failingSource,
+                Map<Map<String, String>, Collection<Row>> data,
+                boolean isAsync,
+                @Nullable String lookupFunctionClass,
+                boolean nestedProjectionSupported,
+                int[][] projectedFields,
+                List<ResolvedExpression> filterPredicates,
+                Set<String> filterableFields,
+                Set<String> dynamicFilteringFields,
+                int numElementToSkip,
+                long limit,
+                List<Map<String, String>> allPartitions,
+                Map<String, DataType> readableMetadata,
+                @Nullable int[] projectedMetadataFields,
+                @Nullable LookupCache cache,
+                @Nullable CacheReloadTrigger reloadTrigger,
+                int lookupThreshold) {
+            super(
+                    originType,
+                    producedDataType,
+                    changelogMode,
+                    boundedness,
+                    terminating,
+                    runtimeSource,
+                    failingSource,
+                    data,
+                    isAsync,
+                    lookupFunctionClass,
+                    nestedProjectionSupported,
+                    projectedFields,
+                    filterPredicates,
+                    filterableFields,
+                    dynamicFilteringFields,
+                    numElementToSkip,
+                    limit,
+                    allPartitions,
+                    readableMetadata,
+                    projectedMetadataFields,
+                    cache,
+                    reloadTrigger,
+                    lookupThreshold);
+        }
+
+        @Override
+        public ScanTableSource applyScanRange(long start, long end) {
+            return (ScanTableSource) copy();
+        }
+    }
+
     // --------------------------------------------------------------------------------------------
     // Table sinks
     // --------------------------------------------------------------------------------------------
@@ -2279,6 +2394,45 @@ public final class TestValuesTableFactory
         @Override
         public void cancel() {
             isRunning = false;
+        }
+    }
+
+    /** Values {@link DynamicTableSink} implementing {@link SupportsOverwrite} for testing. */
+    public static class TestValuesTableSinkWithOverwriteEnabled extends TestValuesTableSink
+            implements SupportsOverwrite {
+        private boolean overwrite;
+
+        private TestValuesTableSinkWithOverwriteEnabled(
+                DataType consumedDataType,
+                int[] primaryKeyIndices,
+                String tableName,
+                boolean isInsertOnly,
+                String runtimeSink,
+                int expectedNum,
+                Map<String, DataType> writableMetadata,
+                @Nullable Integer parallelism,
+                @Nullable ChangelogMode changelogModeEnforced,
+                int rowtimeIndex,
+                TableSchema tableSchema,
+                boolean requireBucketCount) {
+            super(
+                    consumedDataType,
+                    primaryKeyIndices,
+                    tableName,
+                    isInsertOnly,
+                    runtimeSink,
+                    expectedNum,
+                    writableMetadata,
+                    parallelism,
+                    changelogModeEnforced,
+                    rowtimeIndex,
+                    tableSchema,
+                    requireBucketCount);
+        }
+
+        @Override
+        public void applyOverwrite(boolean overwrite) {
+            this.overwrite = overwrite;
         }
     }
 }
