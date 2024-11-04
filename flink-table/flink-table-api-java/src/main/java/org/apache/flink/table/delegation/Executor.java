@@ -26,6 +26,7 @@ import org.apache.flink.configuration.PipelineOptions;
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.core.execution.JobClient;
 import org.apache.flink.core.execution.JobStatusHook;
+import org.apache.flink.incremental.PlanningResult;
 import org.apache.flink.table.api.TableEnvironment;
 
 import javax.annotation.Nullable;
@@ -37,9 +38,9 @@ import java.util.List;
  *
  * <p>This uncouples the {@link TableEnvironment} from any given runtime.
  *
- * <p>Note that not every table program calls {@link #createPipeline(List, ReadableConfig, String)}
- * or {@link #execute(Pipeline)}. When bridging to DataStream API, this interface serves as a
- * communication layer to the final pipeline executor via {@code StreamExecutionEnvironment}.
+ * <p>Note that not every table program calls {@link #createPipeline(PlanningResult, ReadableConfig,
+ * String)} or {@link #execute(Pipeline)}. When bridging to DataStream API, this interface serves as
+ * a communication layer to the final pipeline executor via {@code StreamExecutionEnvironment}.
  *
  * @see ExecutorFactory
  */
@@ -52,13 +53,13 @@ public interface Executor {
     /**
      * Translates the given transformations to a {@link Pipeline}.
      *
-     * @param transformations list of transformations
+     * @param planningResult list of transformations with other information
      * @param tableConfiguration table-specific configuration options
      * @param defaultJobName default job name if not specified via {@link PipelineOptions#NAME}
      * @return The pipeline representing the transformations.
      */
     Pipeline createPipeline(
-            List<Transformation<?>> transformations,
+            PlanningResult planningResult,
             ReadableConfig tableConfiguration,
             @Nullable String defaultJobName);
 
@@ -66,14 +67,14 @@ public interface Executor {
      * Translates the given transformations with a list of {@link JobStatusHook}s to a {@link
      * Pipeline}.
      *
-     * @param transformations list of transformations
+     * @param planningResult list of transformations with other information
      * @param tableConfiguration table-specific configuration options
      * @param defaultJobName default job name if not specified via {@link PipelineOptions#NAME}
      * @param jobStatusHookList list of {@link JobStatusHook}s
      * @return The pipeline representing the transformations.
      */
     Pipeline createPipeline(
-            List<Transformation<?>> transformations,
+            PlanningResult planningResult,
             ReadableConfig tableConfiguration,
             @Nullable String defaultJobName,
             List<JobStatusHook> jobStatusHookList);

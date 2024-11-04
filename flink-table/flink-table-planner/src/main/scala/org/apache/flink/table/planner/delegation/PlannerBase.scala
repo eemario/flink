@@ -19,6 +19,7 @@ package org.apache.flink.table.planner.delegation
 
 import org.apache.flink.annotation.VisibleForTesting
 import org.apache.flink.api.dag.Transformation
+import org.apache.flink.incremental.PlanningResult
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment
 import org.apache.flink.streaming.api.graph.StreamGraph
 import org.apache.flink.table.api._
@@ -167,11 +168,10 @@ abstract class PlannerBase(
     parser
   }
 
-  override def translate(
-      modifyOperations: util.List[ModifyOperation]): util.List[Transformation[_]] = {
+  override def translate(modifyOperations: util.List[ModifyOperation]): PlanningResult = {
     beforeTranslation()
     if (modifyOperations.isEmpty) {
-      return List.empty[Transformation[_]]
+      return new PlanningResult(List.empty[Transformation[_]])
     }
 
     val relNodes = modifyOperations.map(translateToRel)
@@ -179,7 +179,8 @@ abstract class PlannerBase(
     val execGraph = translateToExecNodeGraph(optimizedRelNodes, isCompiled = false)
     val transformations = translateToPlan(execGraph)
     afterTranslation()
-    transformations
+    // TODO pass source offsets and incremental
+    new PlanningResult(transformations, null, false)
   }
 
   /** Converts a relational tree of [[ModifyOperation]] into a Calcite relational expression. */
@@ -538,7 +539,7 @@ abstract class PlannerBase(
 
     // We pass only the configuration to avoid reconfiguration with the rootConfiguration
     val streamGraph = executor
-      .createPipeline(transformations, tableConfig.getConfiguration, null)
+      .createPipeline(new PlanningResult(transformations), tableConfig.getConfiguration, null)
       .asInstanceOf[StreamGraph]
 
     (sinkRelNodes, optimizedRelNodes, execGraph, streamGraph)

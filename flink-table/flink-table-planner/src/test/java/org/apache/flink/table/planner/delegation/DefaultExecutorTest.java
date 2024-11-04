@@ -24,6 +24,7 @@ import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.ExecutionOptions;
 import org.apache.flink.configuration.PipelineOptions;
+import org.apache.flink.incremental.PlanningResult;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.sink.v2.DiscardingSink;
 import org.apache.flink.streaming.api.graph.GlobalStreamExchangeMode;
@@ -47,24 +48,25 @@ class DefaultExecutorTest {
         final List<Transformation<?>> dummyTransformations =
                 Collections.singletonList(
                         env.fromData(1, 2, 3).sinkTo(new DiscardingSink<>()).getTransformation());
+        final PlanningResult planningResult = new PlanningResult(dummyTransformations);
 
         final Configuration configuration = new Configuration();
         configuration.set(PipelineOptions.NAME, "Custom Name");
 
         // default
         testJobName(
-                executor.createPipeline(dummyTransformations, new Configuration(), "Default Name"),
+                executor.createPipeline(planningResult, new Configuration(), "Default Name"),
                 "Default Name");
 
         // Table API specific
         testJobName(
-                executor.createPipeline(dummyTransformations, configuration, "Default Name"),
+                executor.createPipeline(planningResult, configuration, "Default Name"),
                 "Custom Name");
 
         // DataStream API specific
         env.configure(configuration);
         testJobName(
-                executor.createPipeline(dummyTransformations, new Configuration(), "Default Name"),
+                executor.createPipeline(planningResult, new Configuration(), "Default Name"),
                 "Custom Name");
     }
 
@@ -83,7 +85,9 @@ class DefaultExecutorTest {
         final StreamGraph streamGraph =
                 (StreamGraph)
                         executor.createPipeline(
-                                dummyTransformations, configuration, "Default Name");
+                                new PlanningResult(dummyTransformations),
+                                configuration,
+                                "Default Name");
 
         assertThat(streamGraph.getExecutionConfig().isObjectReuseEnabled()).isTrue();
         assertThat(streamGraph.getExecutionConfig().getLatencyTrackingInterval()).isEqualTo(0);
