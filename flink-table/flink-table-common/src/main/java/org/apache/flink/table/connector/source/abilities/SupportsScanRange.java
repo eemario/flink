@@ -34,8 +34,10 @@ public interface SupportsScanRange {
      * method is used to create a table source that will only read data within the specified range
      * defined by the start and end timestamps.
      *
-     * @param start The (exclusive) starting timestamp in milliseconds.
-     * @param end The (inclusive) ending timestamp in milliseconds.
+     * @param start The (exclusive) starting timestamp in milliseconds, or -1 to represent EARLIEST
+     *     which is the time point before all data.
+     * @param end The (inclusive) ending timestamp in milliseconds, or -1 to represent EARLIEST
+     *     which is the time point before all data.
      * @return A new instance of ScanTableSource configured with the specified scan range.
      */
     ScanTableSource applyScanRange(long start, long end);
