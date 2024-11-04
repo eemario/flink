@@ -143,6 +143,10 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
         this.cachedEndOffsets = new SourceOffsets();
     }
 
+    public SourceOffsets getCachedStartOffsets() {
+        return cachedStartOffsets;
+    }
+
     public SourceOffsets getCachedEndOffsets() {
         return cachedEndOffsets;
     }
