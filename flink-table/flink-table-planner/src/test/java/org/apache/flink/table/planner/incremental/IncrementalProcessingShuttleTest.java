@@ -17,10 +17,12 @@
  */
 package org.apache.flink.table.planner.incremental;
 
+import org.apache.flink.incremental.SourceOffsets;
 import org.apache.flink.table.api.ExplainDetail;
 import org.apache.flink.table.api.TableConfig;
 import org.apache.flink.table.catalog.Catalog;
 import org.apache.flink.table.catalog.GenericInMemoryCatalog;
+import org.apache.flink.table.catalog.ObjectIdentifier;
 import org.apache.flink.table.catalog.ObjectPath;
 import org.apache.flink.table.catalog.exceptions.CatalogException;
 import org.apache.flink.table.catalog.exceptions.TableNotExistException;
@@ -36,22 +38,27 @@ import org.apache.calcite.sql.SqlExplainLevel;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import javax.annotation.Nullable;
+
 import java.util.List;
 
 import scala.Enumeration;
 
+import static org.apache.flink.table.utils.EncodingUtils.escapeIdentifier;
 import static org.assertj.core.api.Assertions.assertThat;
 import static scala.runtime.BoxedUnit.UNIT;
 
 /** Test for {@link IncrementalProcessingShuttle}. */
 public class IncrementalProcessingShuttleTest extends TableTestBase {
+    private static final String TEST_CATALOG_NAME = "testCatalog";
+    private static final String TEST_DATABASE_NAME = "default";
     private final TableTestUtil util = batchTestUtil(TableConfig.getDefault());
-    private final Catalog catalog = new MockCatalog("MockCatalog", "default");
+    private final Catalog catalog = new MockCatalog("MockCatalog", TEST_DATABASE_NAME);
 
     @BeforeEach
     public void before() {
-        util.tableEnv().registerCatalog("testCatalog", catalog);
-        util.tableEnv().executeSql("USE CATALOG testCatalog");
+        util.tableEnv().registerCatalog(TEST_CATALOG_NAME, catalog);
+        util.tableEnv().executeSql("USE CATALOG " + TEST_CATALOG_NAME);
         util.tableEnv()
                 .executeSql(
                         "CREATE TABLE t1 (\n"
@@ -119,19 +126,30 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
     @Test
     public void testIncrementalProcessingShuttleWithFilter() {
         String sql = "INSERT OVERWRITE sink SELECT * FROM t1 WHERE a = 0;";
-        assertSupportedPlans(sql, 1);
+        assertSupportedPlans(sql, 1, null);
     }
 
     @Test
     public void testIncrementalProcessingShuttleWithProject() {
         String sql = "INSERT OVERWRITE sink SELECT a FROM t1;";
-        assertSupportedPlans(sql, 1);
+        assertSupportedPlans(sql, 1, null);
     }
 
     @Test
     public void testIncrementalProcessingShuttleWithJoin() {
+        // mock restored source offsets
+        SourceOffsets restoredOffsets = new SourceOffsets();
+        restoredOffsets.setOffset(getFullyQualifiedName("t1"), System.currentTimeMillis());
+        restoredOffsets.setOffset(getFullyQualifiedName("t2"), System.currentTimeMillis());
+
         String sql = "INSERT OVERWRITE sink SELECT t1.a FROM t1 JOIN t2 on t1.a = t2.a;";
-        assertSupportedPlans(sql, 2);
+        assertSupportedPlans(sql, 2, restoredOffsets);
+    }
+
+    @Test
+    public void testIncrementalProcessingShuttleWithJoinFallbackToFullPlan() {
+        String sql = "INSERT OVERWRITE sink SELECT t1.a FROM t1 JOIN t2 on t1.a = t2.a;";
+        assertSupportedPlans(sql, 2, null);
     }
 
     @Test
@@ -145,9 +163,31 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
                                 + " 'bounded' = 'true',\n"
                                 + " 'enable-scan-range' = 'true'\n"
                                 + ")");
+        // mock restored source offsets
+        SourceOffsets restoredOffsets = new SourceOffsets();
+        restoredOffsets.setOffset(getFullyQualifiedName("t1"), System.currentTimeMillis());
+        restoredOffsets.setOffset(getFullyQualifiedName("t2"), System.currentTimeMillis());
+        restoredOffsets.setOffset(getFullyQualifiedName("t3"), System.currentTimeMillis());
+
         String sql =
                 "INSERT OVERWRITE sink SELECT t1.a FROM t1 JOIN t2 on t1.a = t2.a JOIN t3 on t1.a = t3.a;";
-        assertSupportedPlans(sql, 3);
+        assertSupportedPlans(sql, 3, restoredOffsets);
+    }
+
+    @Test
+    public void testIncrementalProcessingShuttleWithMultipleJoinsFallbackToFullPlan() {
+        util.tableEnv()
+                .executeSql(
+                        "CREATE TABLE t3 (\n"
+                                + "  a BIGINT\n"
+                                + ") WITH (\n"
+                                + " 'connector' = 'values',\n"
+                                + " 'bounded' = 'true',\n"
+                                + " 'enable-scan-range' = 'true'\n"
+                                + ")");
+        String sql =
+                "INSERT OVERWRITE sink SELECT t1.a FROM t1 JOIN t2 on t1.a = t2.a JOIN t3 on t1.a = t3.a;";
+        assertSupportedPlans(sql, 3, null);
     }
 
     @Test
@@ -190,7 +230,8 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
         assertThat(incremental).isNull();
     }
 
-    private void assertSupportedPlans(String sql, int sourceNum) {
+    private void assertSupportedPlans(
+            String sql, int sourceNum, @Nullable SourceOffsets restoredOffsets) {
         List<Operation> operationList = util.getPlanner().getParser().parse(sql);
         assertThat(operationList.size()).isEqualTo(1);
         assertThat(operationList.get(0)).isInstanceOf(ModifyOperation.class);
@@ -198,7 +239,7 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
                 TableTestUtil.toRelNode(util.tableEnv(), (ModifyOperation) operationList.get(0));
         util.assertEqualsOrExpand("origin", getStringFromRelNode(origin), true);
         IncrementalProcessingShuttle shuttle =
-                new IncrementalProcessingShuttle(util.tableConfig(), null);
+                new IncrementalProcessingShuttle(util.tableConfig(), restoredOffsets);
         RelNode incremental = origin.accept(shuttle);
         assertThat(incremental).isNotNull();
         assertThat(shuttle.getCachedEndOffsets().getOffsets().size()).isEqualTo(sourceNum);
@@ -210,6 +251,16 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
                 () -> UNIT,
                 true);
     }
+
+    /** Get fully qualified table name as {@link ObjectIdentifier#toString()}. */
+    private String getFullyQualifiedName(String tableName) {
+        return String.format(
+                "%s.%s.%s",
+                escapeIdentifier(TEST_CATALOG_NAME),
+                escapeIdentifier(TEST_DATABASE_NAME),
+                escapeIdentifier(tableName));
+    }
+
     /** Catalog which supports {@link Catalog#getTableTimestamp(ObjectPath, long)}. */
     private static class MockCatalog extends GenericInMemoryCatalog {
         public MockCatalog(String name) {
