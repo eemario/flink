@@ -74,7 +74,7 @@ public class BatchIncrementalExecutionOptions {
     public static final ConfigOption<Integer> INCREMENTAL_CHECKPOINTS_ATTEMPTS =
             ConfigOptions.key("execution.batch.incremental.checkpoints.attempts")
                     .intType()
-                    .defaultValue(3)
+                    .defaultValue(10)
                     .withDescription(
                             "The number of retry attempts when storing checkpoints for incremental execution.");
 

@@ -98,6 +98,8 @@ public class DefaultExecutor implements Executor {
         for (JobStatusHook hook : jobStatusHookList) {
             streamGraph.registerJobStatusHook(hook);
         }
+        streamGraph.setIncrementalBatchCheckpointInfo(
+                planningResult.getSourceOffsets().orElse(null), planningResult.isIncremental());
         return streamGraph;
     }
 

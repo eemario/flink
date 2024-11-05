@@ -170,7 +170,9 @@ public class DefaultExecutionGraphBuilder {
                         markPartitionFinishedStrategy,
                         taskDeploymentDescriptorFactory,
                         jobStatusChangedListeners,
-                        executionPlanSchedulingContext);
+                        executionPlanSchedulingContext,
+                        jobGraph.getSourceOffsets(),
+                        jobGraph.isIncrementalBatchProcessing());
 
         // set the basic properties
 
