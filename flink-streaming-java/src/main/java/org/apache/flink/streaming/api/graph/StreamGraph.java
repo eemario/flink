@@ -36,6 +36,7 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.PipelineOptions;
 import org.apache.flink.core.execution.JobStatusHook;
 import org.apache.flink.core.memory.ManagedMemoryUseCase;
+import org.apache.flink.incremental.SourceOffsets;
 import org.apache.flink.runtime.clusterframework.types.ResourceProfile;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
 import org.apache.flink.runtime.jobgraph.JobGraph;
@@ -137,6 +138,13 @@ public class StreamGraph implements Pipeline {
 
     private final transient Map<StreamNode, StreamOperatorFactory<?>> nodeToHeadOperatorCache =
             new HashMap<>();
+
+    // --- incremental processing checkpoints ---
+    /** Source offsets needed to be stored after the job execution. */
+    @Nullable private SourceOffsets sourceOffsets;
+
+    /** Whether this job is incremental. */
+    private boolean incrementalBatchProcessing;
 
     public StreamGraph(
             Configuration jobConfiguration,
@@ -1074,5 +1082,19 @@ public class StreamGraph implements Pipeline {
         if (streamNode != null) {
             streamNode.setSupportsConcurrentExecutionAttempts(supportsConcurrentExecutionAttempts);
         }
+    }
+
+    public void setIncrementalBatchCheckpointInfo(
+            @Nullable SourceOffsets sourceOffsets, boolean incrementalBatchProcessing) {
+        this.sourceOffsets = sourceOffsets;
+        this.incrementalBatchProcessing = incrementalBatchProcessing;
+    }
+
+    SourceOffsets getSourceOffsets() {
+        return sourceOffsets;
+    }
+
+    public boolean isIncrementalBatchProcessing() {
+        return incrementalBatchProcessing;
     }
 }

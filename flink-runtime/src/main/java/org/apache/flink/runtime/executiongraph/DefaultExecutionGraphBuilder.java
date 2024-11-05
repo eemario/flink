@@ -164,7 +164,9 @@ public class DefaultExecutionGraphBuilder {
                         executionJobVertexFactory,
                         jobGraph.getJobStatusHooks(),
                         markPartitionFinishedStrategy,
-                        taskDeploymentDescriptorFactory);
+                        taskDeploymentDescriptorFactory,
+                        jobGraph.getSourceOffsets(),
+                        jobGraph.isIncrementalBatchProcessing());
 
         // set the basic properties
 

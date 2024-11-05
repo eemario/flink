@@ -316,6 +316,9 @@ public class StreamingJobGraphGenerator {
 
         setVertexDescription();
 
+        jobGraph.setIncrementalBatchCheckpointInfo(
+                streamGraph.getSourceOffsets(), streamGraph.isIncrementalBatchProcessing());
+
         // Wait for the serialization of operator coordinators and stream config.
         try {
             FutureUtils.combineAll(
