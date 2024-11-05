@@ -62,26 +62,7 @@ public class IncrementalProcessingHelperTest extends TableTestBase {
 
         util.tableEnv()
                 .executeSql(
-                        "CREATE TABLE t0 (\n"
-                                + "  a BIGINT\n"
-                                + ") WITH (\n"
-                                + " 'connector' = 'values',\n"
-                                + " 'bounded' = 'true'\n"
-                                + ")");
-
-        util.tableEnv()
-                .executeSql(
                         "CREATE TABLE t1 (\n"
-                                + "  a BIGINT\n"
-                                + ") WITH (\n"
-                                + " 'connector' = 'values',\n"
-                                + " 'bounded' = 'true',\n"
-                                + " 'enable-scan-range' = 'true'\n"
-                                + ")");
-
-        util.tableEnv()
-                .executeSql(
-                        "CREATE TABLE t2 (\n"
                                 + "  a BIGINT\n"
                                 + ") WITH (\n"
                                 + " 'connector' = 'values',\n"
@@ -104,7 +85,7 @@ public class IncrementalProcessingHelperTest extends TableTestBase {
     public void testStreamingMode() throws IOException {
         TableConfig tableConfig =
                 createTableConfig(true, TempDirUtils.newFolder(temporaryFolder).getAbsolutePath());
-        String sqlSupported = "INSERT OVERWRITE sink SELECT t1.a FROM t1 JOIN t2 on t1.a = t2.a;";
+        String sqlSupported = "INSERT OVERWRITE sink SELECT t1.a FROM t1;";
         IncrementalProcessingPlan plan =
                 createIncrementalProcessingPlan(Arrays.asList(sqlSupported), tableConfig, true);
 
@@ -115,7 +96,7 @@ public class IncrementalProcessingHelperTest extends TableTestBase {
     public void testIncrementalModeDisabled() throws IOException {
         TableConfig tableConfig =
                 createTableConfig(false, TempDirUtils.newFolder(temporaryFolder).getAbsolutePath());
-        String sqlSupported = "INSERT OVERWRITE sink SELECT t1.a FROM t1 JOIN t2 on t1.a = t2.a;";
+        String sqlSupported = "INSERT OVERWRITE sink SELECT t1.a FROM t1;";
         IncrementalProcessingPlan plan =
                 createIncrementalProcessingPlan(Arrays.asList(sqlSupported), tableConfig, false);
 
@@ -125,7 +106,7 @@ public class IncrementalProcessingHelperTest extends TableTestBase {
     @Test
     public void testIncrementalCheckpointsDirNull() throws IOException {
         TableConfig tableConfig = createTableConfig(true, null);
-        String sqlSupported = "INSERT OVERWRITE sink SELECT t1.a FROM t1 JOIN t2 on t1.a = t2.a;";
+        String sqlSupported = "INSERT OVERWRITE sink SELECT t1.a FROM t1;";
         IncrementalProcessingPlan plan =
                 createIncrementalProcessingPlan(Arrays.asList(sqlSupported), tableConfig, false);
 
@@ -135,7 +116,7 @@ public class IncrementalProcessingHelperTest extends TableTestBase {
     @Test
     public void testIncrementalCheckpointsDirInvalid() {
         TableConfig tableConfig = createTableConfig(true, "invalid:path");
-        String sqlSupported = "INSERT OVERWRITE sink SELECT t1.a FROM t1 JOIN t2 on t1.a = t2.a;";
+        String sqlSupported = "INSERT OVERWRITE sink SELECT t1.a FROM t1;";
 
         assertThatThrownBy(
                         () ->
@@ -148,12 +129,12 @@ public class IncrementalProcessingHelperTest extends TableTestBase {
     public void testIncrementalSqlSupported() throws IOException {
         TableConfig tableConfig =
                 createTableConfig(true, TempDirUtils.newFolder(temporaryFolder).getAbsolutePath());
-        String sqlSupported = "INSERT OVERWRITE sink SELECT t1.a FROM t1 JOIN t2 on t1.a = t2.a;";
+        String sqlSupported = "INSERT OVERWRITE sink SELECT t1.a FROM t1;";
         IncrementalProcessingPlan plan =
                 createIncrementalProcessingPlan(Arrays.asList(sqlSupported), tableConfig, false);
 
         assertThat(plan).isNotNull();
-        assertThat(plan.getEndOffsets().getOffsets().size()).isEqualTo(2);
+        assertThat(plan.getEndOffsets().getOffsets().size()).isEqualTo(1);
         util.assertEqualsOrExpand("incremental", getStringFromRelNodes(plan.getRelNodes()), true);
     }
 
@@ -161,7 +142,7 @@ public class IncrementalProcessingHelperTest extends TableTestBase {
     public void testIncrementalSqlUnSupported() throws IOException {
         TableConfig tableConfig =
                 createTableConfig(true, TempDirUtils.newFolder(temporaryFolder).getAbsolutePath());
-        String sqlUnSupported = "INSERT INTO sink SELECT t1.a FROM t1 JOIN t2 on t1.a = t2.a;";
+        String sqlUnSupported = "INSERT INTO sink SELECT t1.a FROM t1;";
         IncrementalProcessingPlan plan =
                 createIncrementalProcessingPlan(Arrays.asList(sqlUnSupported), tableConfig, false);
 
@@ -172,14 +153,14 @@ public class IncrementalProcessingHelperTest extends TableTestBase {
     public void testIncrementalSqlContainsSupported() throws Exception {
         TableConfig tableConfig =
                 createTableConfig(true, TempDirUtils.newFolder(temporaryFolder).getAbsolutePath());
-        String sqlSupported = "INSERT OVERWRITE sink SELECT t1.a FROM t1 JOIN t2 on t1.a = t2.a;";
-        String sqlUnSupported = "INSERT INTO sink SELECT t1.a FROM t1 JOIN t2 on t1.a = t2.a;";
+        String sqlSupported = "INSERT OVERWRITE sink SELECT t1.a FROM t1;";
+        String sqlUnSupported = "INSERT INTO sink SELECT t1.a FROM t1;";
         IncrementalProcessingPlan plan =
                 createIncrementalProcessingPlan(
                         Arrays.asList(sqlSupported, sqlUnSupported), tableConfig, false);
 
         assertThat(plan).isNotNull();
-        assertThat(plan.getEndOffsets().getOffsets().size()).isEqualTo(2);
+        assertThat(plan.getEndOffsets().getOffsets().size()).isEqualTo(1);
         util.assertEqualsOrExpand("incremental", getStringFromRelNodes(plan.getRelNodes()), true);
     }
 
