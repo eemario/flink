@@ -108,6 +108,9 @@ import static org.apache.flink.configuration.BatchIncrementalExecutionOptions.SC
  *          +- LogicalTableScan(table=[[testCatalog, default, t2]], hints=[[[OPTIONS inheritPath:[] options:{scan-mode=FULL_OLD}]]])
  * }</pre>
  *
+ * <p>Note that when running incremental processing for the first time, the FULL_OLD side will have
+ * no data and can be removed from the plan.
+ *
  * <p>To use {@link LogicalTableScan}s in an incremental processing plan, the corresponding table
  * sources must implement the {@link SupportsScanRange} interface. This shuttle interacts with the
  * sources to set the scan ranges for the sources.
@@ -133,6 +136,9 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
 
     /** Cache source offsets to avoid repeated interaction with the sources. */
     private final SourceOffsets cachedEndOffsets;
+
+    /** Empty RelNodes that can be removed in DELTA join. */
+    private final Set<RelNode> emptyRelNodeSet = new HashSet<>();
 
     public IncrementalProcessingShuttle(
             TableConfig tableConfig, @Nullable SourceOffsets restoredOffsets) {
@@ -187,7 +193,11 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
             }
             newInputs.add(newInput);
         }
-        return rel.copy(rel.getTraitSet(), newInputs);
+        RelNode newRelNode = rel.copy(rel.getTraitSet(), newInputs);
+        if (emptyRelNodeSet.containsAll(newInputs)) {
+            emptyRelNodeSet.add(newRelNode);
+        }
+        return newRelNode;
     }
 
     private RelNode visitSink(LogicalSink sink, IncrementalTimeType targetTimeType) {
@@ -241,16 +251,23 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
                 return null;
             }
             RelNode joinL = join.copy(join.getTraitSet(), Arrays.asList(newLeftL, newRightL));
-            RelNode leftR = leftL.copy(leftL.getTraitSet(), leftL.getInputs());
-            timeTypeMap.put(leftR, IncrementalTimeType.DELTA);
-            RelNode newLeftR = leftR.accept(this);
-            if (newLeftR == null) {
-                return null;
-            }
+
             RelNode rightR = rightL.copy(rightL.getTraitSet(), rightL.getInputs());
             timeTypeMap.put(rightR, IncrementalTimeType.FULL_OLD);
             RelNode newRightR = rightR.accept(this);
             if (newRightR == null) {
+                return null;
+            }
+            if (emptyRelNodeSet.contains(newRightR)) {
+                // if the FULL_OLD side is empty, which indicates that this is the first run of
+                // incremental processing, the DELTA join plan can be simplified
+                return joinL;
+            }
+
+            RelNode leftR = leftL.copy(leftL.getTraitSet(), leftL.getInputs());
+            timeTypeMap.put(leftR, IncrementalTimeType.DELTA);
+            RelNode newLeftR = leftR.accept(this);
+            if (newLeftR == null) {
                 return null;
             }
             RelNode joinR = join.copy(join.getTraitSet(), Arrays.asList(newLeftR, newRightR));
@@ -319,6 +336,16 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
         newHints.add(RelHint.builder(FlinkHints.HINT_NAME_OPTIONS).hintOptions(hint).build());
         LogicalTableScan newTableScan =
                 LogicalTableScan.create(tableScan.getCluster(), newTableSourceTable, newHints);
+
+        if (scanEndOffset == EARLIEST) {
+            LOG.info(
+                    "The {} scan range for table {} is ({},{}] and may be optimized in DELTA join",
+                    targetTimeType,
+                    sourceIdentifier,
+                    scanStartOffset,
+                    scanEndOffset);
+            emptyRelNodeSet.add(newTableScan);
+        }
         return newTableScan;
     }
 

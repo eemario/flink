@@ -20,19 +20,11 @@ limitations under the License.
 		<Resource name="incremental">
 			<![CDATA[LogicalSink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a)]
 +- LogicalProject(a=[$0]), rowType=[RecordType(BIGINT a)]
-   +- LogicalUnion(all=[true]), rowType=[RecordType(BIGINT a, BIGINT a0)]
-      :- LogicalJoin(condition=[=($0, $1)], joinType=[inner]), rowType=[RecordType(BIGINT a, BIGINT a0)]
-      :  :- LogicalTableScan(table=[[testCatalog, default, t1]], hints=[[[OPTIONS inheritPath:[] options:{scan-mode=FULL_NEW}]]]), rowType=[RecordType(BIGINT a)]
-      :  +- LogicalTableScan(table=[[testCatalog, default, t2]], hints=[[[OPTIONS inheritPath:[] options:{scan-mode=DELTA}]]]), rowType=[RecordType(BIGINT a)]
-      +- LogicalJoin(condition=[=($0, $1)], joinType=[inner]), rowType=[RecordType(BIGINT a, BIGINT a0)]
-         :- LogicalTableScan(table=[[testCatalog, default, t1]], hints=[[[OPTIONS inheritPath:[] options:{scan-mode=DELTA}]]]), rowType=[RecordType(BIGINT a)]
-         +- LogicalTableScan(table=[[testCatalog, default, t2]], hints=[[[OPTIONS inheritPath:[] options:{scan-mode=FULL_OLD}]]]), rowType=[RecordType(BIGINT a)]
+   +- LogicalTableScan(table=[[testCatalog, default, t1]], hints=[[[OPTIONS inheritPath:[] options:{scan-mode=DELTA}]]]), rowType=[RecordType(BIGINT a)]
 
 LogicalSink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a)]
 +- LogicalProject(a=[$0]), rowType=[RecordType(BIGINT a)]
-   +- LogicalJoin(condition=[=($0, $1)], joinType=[inner]), rowType=[RecordType(BIGINT a, BIGINT a0)]
-      :- LogicalTableScan(table=[[testCatalog, default, t1]]), rowType=[RecordType(BIGINT a)]
-      +- LogicalTableScan(table=[[testCatalog, default, t2]]), rowType=[RecordType(BIGINT a)]
+   +- LogicalTableScan(table=[[testCatalog, default, t1]]), rowType=[RecordType(BIGINT a)]
 ]]>
 		</Resource>
 	</TestCase>
@@ -40,13 +32,7 @@ LogicalSink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(B
 		<Resource name="incremental">
 			<![CDATA[LogicalSink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a)]
 +- LogicalProject(a=[$0]), rowType=[RecordType(BIGINT a)]
-   +- LogicalUnion(all=[true]), rowType=[RecordType(BIGINT a, BIGINT a0)]
-      :- LogicalJoin(condition=[=($0, $1)], joinType=[inner]), rowType=[RecordType(BIGINT a, BIGINT a0)]
-      :  :- LogicalTableScan(table=[[testCatalog, default, t1]], hints=[[[OPTIONS inheritPath:[] options:{scan-mode=FULL_NEW}]]]), rowType=[RecordType(BIGINT a)]
-      :  +- LogicalTableScan(table=[[testCatalog, default, t2]], hints=[[[OPTIONS inheritPath:[] options:{scan-mode=DELTA}]]]), rowType=[RecordType(BIGINT a)]
-      +- LogicalJoin(condition=[=($0, $1)], joinType=[inner]), rowType=[RecordType(BIGINT a, BIGINT a0)]
-         :- LogicalTableScan(table=[[testCatalog, default, t1]], hints=[[[OPTIONS inheritPath:[] options:{scan-mode=DELTA}]]]), rowType=[RecordType(BIGINT a)]
-         +- LogicalTableScan(table=[[testCatalog, default, t2]], hints=[[[OPTIONS inheritPath:[] options:{scan-mode=FULL_OLD}]]]), rowType=[RecordType(BIGINT a)]
+   +- LogicalTableScan(table=[[testCatalog, default, t1]], hints=[[[OPTIONS inheritPath:[] options:{scan-mode=DELTA}]]]), rowType=[RecordType(BIGINT a)]
 ]]>
 		</Resource>
 	</TestCase>
