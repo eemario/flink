@@ -92,6 +92,7 @@ import org.apache.flink.runtime.taskmanager.DispatcherThreadFactory;
 import org.apache.flink.util.CollectionUtil;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.FlinkException;
+import org.apache.flink.util.FlinkRuntimeException;
 import org.apache.flink.util.IterableUtils;
 import org.apache.flink.util.MdcUtils;
 import org.apache.flink.util.OptionalFailure;
@@ -128,6 +129,7 @@ import java.util.stream.Collectors;
 import static org.apache.flink.configuration.BatchIncrementalExecutionOptions.INCREMENTAL_CHECKPOINTS_ATTEMPTS;
 import static org.apache.flink.configuration.BatchIncrementalExecutionOptions.INCREMENTAL_CHECKPOINTS_DIRECTORY;
 import static org.apache.flink.configuration.BatchIncrementalExecutionOptions.INCREMENTAL_CHECKPOINTS_HISTORY_SIZE;
+import static org.apache.flink.configuration.BatchIncrementalExecutionOptions.INCREMENTAL_CHECKPOINTS_RETRY_INTERVAL;
 import static org.apache.flink.configuration.CheckpointingOptions.CHECKPOINTS_DIRECTORY;
 import static org.apache.flink.runtime.executiongraph.ExecutionGraphUtils.isAnyOutputBlocking;
 import static org.apache.flink.util.Preconditions.checkNotNull;
@@ -1282,43 +1284,64 @@ public class DefaultExecutionGraph implements ExecutionGraph, InternalExecutionG
                 return;
             }
 
-            addIncrementalBatchCheckpoint();
-
-            // if we do not make this state transition, then a concurrent
-            // cancellation or failure happened
-            if (transitionState(JobStatus.RUNNING, JobStatus.FINISHED)) {
-                onTerminalState(JobStatus.FINISHED);
+            if (!shouldAddIncrementalBatchCheckpoint()) {
+                // if we do not make this state transition, then a concurrent
+                // cancellation or failure happened
+                if (transitionState(JobStatus.RUNNING, JobStatus.FINISHED)) {
+                    onTerminalState(JobStatus.FINISHED);
+                }
+                return;
             }
+
+            CompletableFuture<Void> addIncrementalBatchCheckpointFuture =
+                    CompletableFuture.runAsync(() -> addIncrementalBatchCheckpoint(), ioExecutor);
+
+            addIncrementalBatchCheckpointFuture.whenCompleteAsync(
+                    (ignored, throwable) -> {
+                        if (throwable != null) {
+                            failGlobal(
+                                    new SuppressRestartsException(
+                                            new RuntimeException(
+                                                    "Failed to write incremental processing checkpoint",
+                                                    throwable)));
+                        } else {
+                            if (transitionState(JobStatus.RUNNING, JobStatus.FINISHED)) {
+                                onTerminalState(JobStatus.FINISHED);
+                            }
+                        }
+                    },
+                    jobMasterMainThreadExecutor);
         }
     }
 
-    private void addIncrementalBatchCheckpoint() {
-        if (sourceOffsets == null) {
-            return;
-        }
+    private boolean shouldAddIncrementalBatchCheckpoint() {
+        return sourceOffsets != null;
+    }
 
+    private void addIncrementalBatchCheckpoint() {
         Configuration configuration = getJobConfiguration();
         int incrementalStoreRetryAttempts = configuration.get(INCREMENTAL_CHECKPOINTS_ATTEMPTS);
+        long incrementalStoreRetryInterval =
+                configuration.get(INCREMENTAL_CHECKPOINTS_RETRY_INTERVAL).toMillis();
         int incrementalHistorySizeLimit = configuration.get(INCREMENTAL_CHECKPOINTS_HISTORY_SIZE);
         String incrementalCheckpointsDir = configuration.get(INCREMENTAL_CHECKPOINTS_DIRECTORY);
         if (incrementalCheckpointsDir == null) {
             incrementalCheckpointsDir = configuration.get(CHECKPOINTS_DIRECTORY);
         }
-        LOG.info(
-                "Start to write incremental processing checkpoint. source offsets: {}, is incremental: {}, store retry attempts: {}, size limit of history: {}, checkpoints directory: {}.",
-                sourceOffsets,
-                incrementalBatchProcessing,
-                incrementalStoreRetryAttempts,
-                incrementalHistorySizeLimit,
-                incrementalCheckpointsDir);
-
-        int remainingAttempts = incrementalStoreRetryAttempts;
-        boolean success = false;
         HistoryRecord historyRecord =
                 new HistoryRecord(getJobID().toString(), incrementalBatchProcessing);
         History history = new History(incrementalHistorySizeLimit);
+        LOG.info(
+                "Start to write incremental processing checkpoint. source offsets: {}, is incremental: {}, store retry attempts: {}, retry interval: {}, size limit of history: {}, checkpoints directory: {}.",
+                sourceOffsets,
+                incrementalBatchProcessing,
+                incrementalStoreRetryAttempts,
+                incrementalStoreRetryInterval,
+                incrementalHistorySizeLimit,
+                incrementalCheckpointsDir);
 
-        while (remainingAttempts > 0 && !success) {
+        int numRetry = 0;
+        while (true) {
             try {
                 IncrementalBatchCheckpointStore store =
                         new FileSystemIncrementalBatchCheckpointStore(incrementalCheckpointsDir);
@@ -1329,18 +1352,29 @@ public class DefaultExecutionGraph implements ExecutionGraph, InternalExecutionG
                 history.addHistoryRecord(historyRecord);
                 store.addCheckpointAndSubsumeOldestOne(
                         new IncrementalBatchCheckpoint(sourceOffsets, history));
-                success = true;
-            } catch (Throwable t) {
-                LOG.warn("Failed to write incremental processing checkpoint, retrying", t);
-                remainingAttempts--;
+                return;
+            } catch (Exception e) {
+                if (numRetry >= incrementalStoreRetryAttempts) {
+                    throw new FlinkRuntimeException(
+                            String.format(
+                                    "Failed to write incremental processing checkpoint after %d retries",
+                                    numRetry),
+                            e);
+                }
+                numRetry++;
+                LOG.warn(
+                        String.format(
+                                "Failed to write incremental processing checkpoint, will retry in %d milliseconds",
+                                incrementalStoreRetryInterval),
+                        e);
+                try {
+                    Thread.sleep(incrementalStoreRetryInterval);
+                } catch (InterruptedException ex) {
+                    LOG.warn(
+                            "Interrupted while waiting to retry failed incremental processing checkpoint, aborting");
+                    throw new FlinkRuntimeException(ex);
+                }
             }
-        }
-
-        if (!success) {
-            failJob(
-                    new SuppressRestartsException(
-                            new Exception("Failed to write incremental processing checkpoint")),
-                    System.currentTimeMillis());
         }
     }
 

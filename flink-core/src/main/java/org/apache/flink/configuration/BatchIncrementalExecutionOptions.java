@@ -23,6 +23,8 @@ import org.apache.flink.annotation.docs.Documentation;
 import org.apache.flink.configuration.description.Description;
 import org.apache.flink.configuration.description.TextElement;
 
+import java.time.Duration;
+
 import static org.apache.flink.configuration.CheckpointingOptions.CHECKPOINTS_DIRECTORY;
 
 /** The set of configuration options relating to incremental execution. */
@@ -77,6 +79,14 @@ public class BatchIncrementalExecutionOptions {
                     .defaultValue(10)
                     .withDescription(
                             "The number of retry attempts when storing checkpoints for incremental execution.");
+
+    @Documentation.ExcludeFromDocumentation
+    public static final ConfigOption<Duration> INCREMENTAL_CHECKPOINTS_RETRY_INTERVAL =
+            ConfigOptions.key("execution.batch.incremental.checkpoints.retry-interval")
+                    .durationType()
+                    .defaultValue(Duration.ofMillis(100))
+                    .withDescription(
+                            "The interval between two consecutive attempts to store checkpoints for incremental execution.");
 
     @Documentation.ExcludeFromDocumentation
     public static final ConfigOption<String> INCREMENTAL_SCAN_RANGE_START_TIMESTAMP =
