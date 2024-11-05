@@ -29,6 +29,7 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.execution.DefaultJobExecutionStatusEvent;
 import org.apache.flink.core.execution.JobStatusChangedListener;
 import org.apache.flink.core.execution.JobStatusHook;
+import org.apache.flink.incremental.SourceOffsets;
 import org.apache.flink.metrics.Counter;
 import org.apache.flink.metrics.SimpleCounter;
 import org.apache.flink.runtime.JobException;
@@ -51,8 +52,14 @@ import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutor;
 import org.apache.flink.runtime.deployment.TaskDeploymentDescriptorFactory;
 import org.apache.flink.runtime.entrypoint.ClusterEntryPointExceptionUtils;
 import org.apache.flink.runtime.execution.ExecutionState;
+import org.apache.flink.runtime.execution.SuppressRestartsException;
 import org.apache.flink.runtime.executiongraph.failover.ResultPartitionAvailabilityChecker;
 import org.apache.flink.runtime.executiongraph.failover.partitionrelease.PartitionGroupReleaseStrategy;
+import org.apache.flink.runtime.incremental.FileSystemIncrementalBatchCheckpointStore;
+import org.apache.flink.runtime.incremental.History;
+import org.apache.flink.runtime.incremental.HistoryRecord;
+import org.apache.flink.runtime.incremental.IncrementalBatchCheckpoint;
+import org.apache.flink.runtime.incremental.IncrementalBatchCheckpointStore;
 import org.apache.flink.runtime.io.network.partition.JobMasterPartitionTracker;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
@@ -124,6 +131,10 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static org.apache.flink.configuration.BatchIncrementalExecutionOptions.INCREMENTAL_CHECKPOINTS_ATTEMPTS;
+import static org.apache.flink.configuration.BatchIncrementalExecutionOptions.INCREMENTAL_CHECKPOINTS_DIRECTORY;
+import static org.apache.flink.configuration.BatchIncrementalExecutionOptions.INCREMENTAL_CHECKPOINTS_HISTORY_SIZE;
+import static org.apache.flink.configuration.CheckpointingOptions.CHECKPOINTS_DIRECTORY;
 import static org.apache.flink.runtime.executiongraph.ExecutionGraphUtils.isAnyOutputBlocking;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 import static org.apache.flink.util.Preconditions.checkState;
@@ -309,6 +320,10 @@ public class DefaultExecutionGraph implements ExecutionGraph, InternalExecutionG
 
     private final ExecutionPlanSchedulingContext executionPlanSchedulingContext;
 
+    // ------ Fields for incremental processing checkpoints ------------
+    @Nullable private final SourceOffsets sourceOffsets;
+    private final boolean incrementalBatchProcessing;
+
     // --------------------------------------------------------------------------------------------
     //   Constructors
     // --------------------------------------------------------------------------------------------
@@ -335,7 +350,9 @@ public class DefaultExecutionGraph implements ExecutionGraph, InternalExecutionG
             MarkPartitionFinishedStrategy markPartitionFinishedStrategy,
             TaskDeploymentDescriptorFactory taskDeploymentDescriptorFactory,
             List<JobStatusChangedListener> jobStatusChangedListeners,
-            ExecutionPlanSchedulingContext executionPlanSchedulingContext) {
+            ExecutionPlanSchedulingContext executionPlanSchedulingContext,
+            @Nullable SourceOffsets sourceOffsets,
+            boolean incrementalBatchProcessing) {
 
         this.executionGraphId = new ExecutionGraphID();
 
@@ -408,6 +425,9 @@ public class DefaultExecutionGraph implements ExecutionGraph, InternalExecutionG
         this.jobStatusChangedListeners = checkNotNull(jobStatusChangedListeners);
 
         this.executionPlanSchedulingContext = checkNotNull(executionPlanSchedulingContext);
+
+        this.sourceOffsets = sourceOffsets;
+        this.incrementalBatchProcessing = incrementalBatchProcessing;
 
         LOG.info(
                 "Created execution graph {} for job {}.",
@@ -1312,11 +1332,65 @@ public class DefaultExecutionGraph implements ExecutionGraph, InternalExecutionG
                 return;
             }
 
+            addIncrementalBatchCheckpoint();
+
             // if we do not make this state transition, then a concurrent
             // cancellation or failure happened
             if (transitionState(JobStatus.RUNNING, JobStatus.FINISHED)) {
                 onTerminalState(JobStatus.FINISHED);
             }
+        }
+    }
+
+    private void addIncrementalBatchCheckpoint() {
+        if (sourceOffsets == null) {
+            return;
+        }
+
+        Configuration configuration = getJobConfiguration();
+        int incrementalStoreRetryAttempts = configuration.get(INCREMENTAL_CHECKPOINTS_ATTEMPTS);
+        int incrementalHistorySizeLimit = configuration.get(INCREMENTAL_CHECKPOINTS_HISTORY_SIZE);
+        String incrementalCheckpointsDir = configuration.get(INCREMENTAL_CHECKPOINTS_DIRECTORY);
+        if (incrementalCheckpointsDir == null) {
+            incrementalCheckpointsDir = configuration.get(CHECKPOINTS_DIRECTORY);
+        }
+        LOG.info(
+                "Start to write incremental processing checkpoint. source offsets: {}, is incremental: {}, store retry attempts: {}, size limit of history: {}, checkpoints directory: {}.",
+                sourceOffsets,
+                incrementalBatchProcessing,
+                incrementalStoreRetryAttempts,
+                incrementalHistorySizeLimit,
+                incrementalCheckpointsDir);
+
+        int remainingAttempts = incrementalStoreRetryAttempts;
+        boolean success = false;
+        HistoryRecord historyRecord =
+                new HistoryRecord(getJobID().toString(), incrementalBatchProcessing);
+        History history = new History(incrementalHistorySizeLimit);
+
+        while (remainingAttempts > 0 && !success) {
+            try {
+                IncrementalBatchCheckpointStore store =
+                        new FileSystemIncrementalBatchCheckpointStore(incrementalCheckpointsDir);
+                History restoredHistory = store.getHistory();
+                if (restoredHistory != null) {
+                    history.setRetainedHistoryRecords(restoredHistory.getRetainedHistoryRecords());
+                }
+                history.addHistoryRecord(historyRecord);
+                store.addCheckpointAndSubsumeOldestOne(
+                        new IncrementalBatchCheckpoint(sourceOffsets, history));
+                success = true;
+            } catch (Throwable t) {
+                LOG.warn("Failed to write incremental processing checkpoint, retrying", t);
+                remainingAttempts--;
+            }
+        }
+
+        if (!success) {
+            failJob(
+                    new SuppressRestartsException(
+                            new Exception("Failed to write incremental processing checkpoint")),
+                    System.currentTimeMillis());
         }
     }
 

@@ -26,6 +26,7 @@ import org.apache.flink.api.common.operators.ResourceSpec;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.execution.JobStatusHook;
 import org.apache.flink.core.fs.Path;
+import org.apache.flink.incremental.SourceOffsets;
 import org.apache.flink.runtime.blob.PermanentBlobKey;
 import org.apache.flink.runtime.jobgraph.tasks.JobCheckpointingSettings;
 import org.apache.flink.runtime.jobmanager.scheduler.CoLocationGroup;
@@ -124,6 +125,13 @@ public class JobGraph implements ExecutionPlan {
 
     /** List of user-defined job status change hooks. */
     private List<JobStatusHook> jobStatusHooks = Collections.emptyList();
+
+    // --- incremental processing checkpoints ---
+    /** Source offsets needed to be stored after the job execution. */
+    @Nullable private SourceOffsets sourceOffsets;
+
+    /** Whether this job is incremental. */
+    private boolean incrementalBatchProcessing;
 
     // --------------------------------------------------------------------------------------------
 
@@ -692,5 +700,22 @@ public class JobGraph implements ExecutionPlan {
     @Override
     public long getInitialClientHeartbeatTimeout() {
         return initialClientHeartbeatTimeout;
+    }
+
+    // --------------------------------------------------------------------------------------------
+    //  Incremental Processing
+    // --------------------------------------------------------------------------------------------
+    public void setIncrementalBatchCheckpointInfo(
+            @Nullable SourceOffsets sourceOffsets, boolean incrementalBatchProcessing) {
+        this.sourceOffsets = sourceOffsets;
+        this.incrementalBatchProcessing = incrementalBatchProcessing;
+    }
+
+    public SourceOffsets getSourceOffsets() {
+        return this.sourceOffsets;
+    }
+
+    public boolean isIncrementalBatchProcessing() {
+        return incrementalBatchProcessing;
     }
 }

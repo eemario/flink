@@ -930,6 +930,9 @@ public class StreamingJobGraphGenerator {
             jobGraph.setJobStatusHooks(streamGraph.getJobStatusHooks());
         }
 
+        jobGraph.setIncrementalBatchCheckpointInfo(
+                streamGraph.getSourceOffsets(), streamGraph.isIncrementalBatchProcessing());
+
         return jobGraph;
     }
 

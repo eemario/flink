@@ -43,6 +43,7 @@ import org.apache.flink.core.execution.CheckpointingMode;
 import org.apache.flink.core.execution.JobStatusHook;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.core.memory.ManagedMemoryUseCase;
+import org.apache.flink.incremental.SourceOffsets;
 import org.apache.flink.runtime.blob.PermanentBlobKey;
 import org.apache.flink.runtime.checkpoint.CheckpointRetentionPolicy;
 import org.apache.flink.runtime.checkpoint.MasterTriggerRestoreHook;
@@ -197,6 +198,13 @@ public class StreamGraph implements Pipeline, ExecutionPlan {
     // Serialized watermark declarations of the StreamGraph, which may be null if no watermark is
     // declared
     private byte[] serializedWatermarkDeclarations;
+
+    // --- incremental processing checkpoints ---
+    /** Source offsets needed to be stored after the job execution. */
+    @Nullable private SourceOffsets sourceOffsets;
+
+    /** Whether this job is incremental. */
+    private boolean incrementalBatchProcessing;
 
     public StreamGraph(
             Configuration jobConfiguration,
@@ -1659,5 +1667,22 @@ public class StreamGraph implements Pipeline, ExecutionPlan {
                     },
                     serializationExecutor);
         }
+    }
+
+    // --------------------------------------------------------------------------------------------
+    //  Incremental Processing
+    // --------------------------------------------------------------------------------------------
+    public void setIncrementalBatchCheckpointInfo(
+            @Nullable SourceOffsets sourceOffsets, boolean incrementalBatchProcessing) {
+        this.sourceOffsets = sourceOffsets;
+        this.incrementalBatchProcessing = incrementalBatchProcessing;
+    }
+
+    public SourceOffsets getSourceOffsets() {
+        return sourceOffsets;
+    }
+
+    public boolean isIncrementalBatchProcessing() {
+        return incrementalBatchProcessing;
     }
 }
