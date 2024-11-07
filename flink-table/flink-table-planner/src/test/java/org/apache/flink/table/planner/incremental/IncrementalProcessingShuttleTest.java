@@ -125,6 +125,23 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
     }
 
     @Test
+    public void testIncrementalProcessingShuttleWithJoinPkTable() {
+        // Unsupported for now.
+        util.tableEnv()
+                .executeSql(
+                        "CREATE TABLE t1_pk (\n"
+                                + "  a BIGINT PRIMARY KEY NOT ENFORCED\n"
+                                + ") WITH (\n"
+                                + " 'connector' = 'values',\n"
+                                + " 'bounded' = 'true',\n"
+                                + " 'enable-scan-range' = 'true'\n"
+                                + ")");
+
+        String sql = "INSERT OVERWRITE sink SELECT t1_pk.a FROM t1_pk JOIN t2 on t1_pk.a = t2.a;";
+        assertUnsupported(sql);
+    }
+
+    @Test
     public void testIncrementalProcessingShuttleWithFilter() {
         String sql = "INSERT OVERWRITE sink SELECT * FROM t1 WHERE a = 0;";
         assertSupportedPlans(sql, 1, null);

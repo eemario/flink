@@ -18,6 +18,17 @@
 
 package org.apache.flink.table.planner.incremental;
 
+import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.core.JoinRelType;
+import org.apache.calcite.rel.hint.RelHint;
+import org.apache.calcite.rel.logical.LogicalFilter;
+import org.apache.calcite.rel.logical.LogicalJoin;
+import org.apache.calcite.rel.logical.LogicalProject;
+import org.apache.calcite.rel.logical.LogicalTableScan;
+import org.apache.calcite.rel.logical.LogicalUnion;
+import org.apache.calcite.rex.RexCall;
+import org.apache.calcite.rex.RexSubQuery;
+import org.apache.calcite.sql.SqlKind;
 import org.apache.flink.configuration.BatchIncrementalExecutionOptions;
 import org.apache.flink.incremental.SourceOffsets;
 import org.apache.flink.table.api.TableConfig;
@@ -34,23 +45,11 @@ import org.apache.flink.table.planner.plan.abilities.sink.SinkAbilitySpec;
 import org.apache.flink.table.planner.plan.nodes.calcite.LogicalSink;
 import org.apache.flink.table.planner.plan.schema.TableSourceTable;
 import org.apache.flink.table.planner.plan.utils.DefaultRelShuttle;
-
-import org.apache.calcite.rel.RelNode;
-import org.apache.calcite.rel.core.JoinRelType;
-import org.apache.calcite.rel.hint.RelHint;
-import org.apache.calcite.rel.logical.LogicalFilter;
-import org.apache.calcite.rel.logical.LogicalJoin;
-import org.apache.calcite.rel.logical.LogicalProject;
-import org.apache.calcite.rel.logical.LogicalTableScan;
-import org.apache.calcite.rel.logical.LogicalUnion;
-import org.apache.calcite.rex.RexCall;
-import org.apache.calcite.rex.RexSubQuery;
-import org.apache.calcite.sql.SqlKind;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.collection.JavaConverters;
 
 import javax.annotation.Nullable;
-
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -63,8 +62,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-
-import scala.collection.JavaConverters;
 
 import static org.apache.flink.configuration.BatchIncrementalExecutionOptions.SCAN_RANGE_TIMESTAMP_FORMAT;
 
@@ -125,8 +122,10 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
     private static final String SCAN_MODE_HINT_NAME = "scan-mode";
 
     private static final long EARLIEST = -1;
+
     private static final Set<SqlKind> SUPPORTED_REXCALL_KINDS =
             new HashSet<>(Arrays.asList(SqlKind.EQUALS));
+
     private final Map<RelNode, IncrementalTimeType> timeTypeMap = new HashMap<>();
     private final TableConfig tableConfig;
     @Nullable private final SourceOffsets restoredOffsets;
@@ -139,6 +138,8 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
 
     /** Empty RelNodes that can be removed in DELTA join. */
     private final Set<RelNode> emptyRelNodeSet = new HashSet<>();
+
+    private boolean hasJoin = false;
 
     public IncrementalProcessingShuttle(
             TableConfig tableConfig, @Nullable SourceOffsets restoredOffsets) {
@@ -168,6 +169,7 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
             return visitSink((LogicalSink) rel, targetTimeType);
         } else if (rel instanceof LogicalJoin) {
             // Only supports INNER join for now
+            hasJoin = true;
             LogicalJoin join = (LogicalJoin) rel;
             if (join.getJoinType() != JoinRelType.INNER) {
                 return null;
@@ -218,6 +220,7 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
             return null;
         }
         ((SupportsOverwrite) sink.tableSink()).applyOverwrite(false);
+
         RelNode input = sink.getInput();
         timeTypeMap.put(input, targetTimeType);
         RelNode newInput = input.accept(this);
@@ -285,6 +288,21 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
                     tableScan.getTable().getQualifiedName());
             return null;
         }
+
+        // TODO remove this check after supporting upsert data for JOIN
+        if (hasJoin
+                && tableSourceTable
+                        .contextResolvedTable()
+                        .getResolvedTable()
+                        .getResolvedSchema()
+                        .getPrimaryKey()
+                        .isPresent()) {
+            LOG.info(
+                    "The query contains JOIN and primary key table {}. Failed to generate an incremental plan.",
+                    tableScan.getTable().getQualifiedName());
+            return null;
+        }
+
         ObjectIdentifier sourceIdentifier = tableSourceTable.contextResolvedTable().getIdentifier();
         Optional<Catalog> optionalCatalog = tableSourceTable.contextResolvedTable().getCatalog();
         if (!optionalCatalog.isPresent()) {
@@ -293,6 +311,7 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
                     sourceIdentifier);
             return null;
         }
+
         Catalog catalog = optionalCatalog.get();
         long startOffset, endOffset;
         String sourceName = sourceIdentifier.toString();
@@ -309,6 +328,7 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
             endOffset = getScanRangeEnd(sourceIdentifier, catalog);
             cachedEndOffsets.setOffset(sourceName, endOffset);
         }
+
         // sets scan range for the table source
         long scanStartOffset =
                 (targetTimeType == IncrementalTimeType.DELTA ? startOffset : EARLIEST);
@@ -323,6 +343,7 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
             LOG.info("Failed to set scan range for table source {}.", sourceIdentifier, e);
             return null;
         }
+
         // creates a new TableSourceTable and LogicalTableScan
         TableSourceTable newTableSourceTable =
                 tableSourceTable.copy(
@@ -374,6 +395,7 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
                 || restoredOffsets == null) {
             return EARLIEST;
         }
+
         if (raw.equals(BatchIncrementalExecutionOptions.SCAN_RANGE_START_AUTO)) {
             String sourceName = sourceIdentifier.toString();
             if (!restoredOffsets.containsOffset(sourceName)) {
@@ -382,6 +404,7 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
             }
             return restoredOffsets.getOffset(sourceName);
         }
+
         try {
             return catalog.getTableTimestamp(sourceIdentifier.toObjectPath(), parseTimestamp(raw));
         } catch (TableNotExistException e) {
@@ -402,6 +425,7 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
         } else {
             timestamp = parseTimestamp(raw);
         }
+
         try {
             return catalog.getTableTimestamp(sourceIdentifier.toObjectPath(), timestamp);
         } catch (TableNotExistException e) {
