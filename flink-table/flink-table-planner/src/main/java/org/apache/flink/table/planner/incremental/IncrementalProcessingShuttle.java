@@ -18,17 +18,6 @@
 
 package org.apache.flink.table.planner.incremental;
 
-import org.apache.calcite.rel.RelNode;
-import org.apache.calcite.rel.core.JoinRelType;
-import org.apache.calcite.rel.hint.RelHint;
-import org.apache.calcite.rel.logical.LogicalFilter;
-import org.apache.calcite.rel.logical.LogicalJoin;
-import org.apache.calcite.rel.logical.LogicalProject;
-import org.apache.calcite.rel.logical.LogicalTableScan;
-import org.apache.calcite.rel.logical.LogicalUnion;
-import org.apache.calcite.rex.RexCall;
-import org.apache.calcite.rex.RexSubQuery;
-import org.apache.calcite.sql.SqlKind;
 import org.apache.flink.configuration.BatchIncrementalExecutionOptions;
 import org.apache.flink.incremental.SourceOffsets;
 import org.apache.flink.table.api.TableConfig;
@@ -45,11 +34,23 @@ import org.apache.flink.table.planner.plan.abilities.sink.SinkAbilitySpec;
 import org.apache.flink.table.planner.plan.nodes.calcite.LogicalSink;
 import org.apache.flink.table.planner.plan.schema.TableSourceTable;
 import org.apache.flink.table.planner.plan.utils.DefaultRelShuttle;
+
+import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.core.JoinRelType;
+import org.apache.calcite.rel.hint.RelHint;
+import org.apache.calcite.rel.logical.LogicalFilter;
+import org.apache.calcite.rel.logical.LogicalJoin;
+import org.apache.calcite.rel.logical.LogicalProject;
+import org.apache.calcite.rel.logical.LogicalTableScan;
+import org.apache.calcite.rel.logical.LogicalUnion;
+import org.apache.calcite.rex.RexCall;
+import org.apache.calcite.rex.RexSubQuery;
+import org.apache.calcite.sql.SqlKind;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.collection.JavaConverters;
 
 import javax.annotation.Nullable;
+
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -62,6 +63,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+
+import scala.collection.JavaConverters;
 
 import static org.apache.flink.configuration.BatchIncrementalExecutionOptions.SCAN_RANGE_TIMESTAMP_FORMAT;
 
@@ -391,12 +394,14 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
         String raw =
                 tableConfig.get(
                         BatchIncrementalExecutionOptions.INCREMENTAL_SCAN_RANGE_START_TIMESTAMP);
-        if (raw.equals(BatchIncrementalExecutionOptions.SCAN_RANGE_START_EARLIEST)
-                || restoredOffsets == null) {
+        if (raw.equals(BatchIncrementalExecutionOptions.SCAN_RANGE_START_EARLIEST)) {
             return EARLIEST;
         }
 
         if (raw.equals(BatchIncrementalExecutionOptions.SCAN_RANGE_START_AUTO)) {
+            if (restoredOffsets == null) {
+                return EARLIEST;
+            }
             String sourceName = sourceIdentifier.toString();
             if (!restoredOffsets.containsOffset(sourceName)) {
                 throw new IllegalStateException(
