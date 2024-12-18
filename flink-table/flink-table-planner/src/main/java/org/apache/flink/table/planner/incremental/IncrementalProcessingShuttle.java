@@ -394,12 +394,14 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
         String raw =
                 tableConfig.get(
                         BatchIncrementalExecutionOptions.INCREMENTAL_SCAN_RANGE_START_TIMESTAMP);
-        if (raw.equals(BatchIncrementalExecutionOptions.SCAN_RANGE_START_EARLIEST)
-                || restoredOffsets == null) {
+        if (raw.equals(BatchIncrementalExecutionOptions.SCAN_RANGE_START_EARLIEST)) {
             return EARLIEST;
         }
 
         if (raw.equals(BatchIncrementalExecutionOptions.SCAN_RANGE_START_AUTO)) {
+            if (restoredOffsets == null) {
+                return EARLIEST;
+            }
             String sourceName = sourceIdentifier.toString();
             if (!restoredOffsets.containsOffset(sourceName)) {
                 throw new IllegalStateException(
