@@ -18,6 +18,7 @@
 
 package org.apache.flink.table.planner.incremental;
 
+import org.apache.flink.configuration.BatchIncrementalExecutionOptions;
 import org.apache.flink.incremental.SourceOffsets;
 import org.apache.flink.table.api.ExplainDetail;
 import org.apache.flink.table.api.TableConfig;
@@ -41,10 +42,14 @@ import org.junit.jupiter.api.Test;
 
 import javax.annotation.Nullable;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 import scala.Enumeration;
 
+import static org.apache.flink.configuration.BatchIncrementalExecutionOptions.SCAN_RANGE_TIMESTAMP_FORMAT;
 import static org.apache.flink.table.utils.EncodingUtils.escapeIdentifier;
 import static org.assertj.core.api.Assertions.assertThat;
 import static scala.runtime.BoxedUnit.UNIT;
@@ -53,6 +58,7 @@ import static scala.runtime.BoxedUnit.UNIT;
 public class IncrementalProcessingShuttleTest extends TableTestBase {
     private static final String TEST_CATALOG_NAME = "testCatalog";
     private static final String TEST_DATABASE_NAME = "default";
+
     private final TableTestUtil util = batchTestUtil(TableConfig.getDefault());
     private final Catalog catalog = new MockCatalog("MockCatalog", TEST_DATABASE_NAME);
 
@@ -60,6 +66,7 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
     public void before() {
         util.tableEnv().registerCatalog(TEST_CATALOG_NAME, catalog);
         util.tableEnv().executeSql("USE CATALOG " + TEST_CATALOG_NAME);
+
         util.tableEnv()
                 .executeSql(
                         "CREATE TABLE t1 (\n"
@@ -69,6 +76,7 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
                                 + " 'bounded' = 'true',\n"
                                 + " 'enable-scan-range' = 'true'\n"
                                 + ")");
+
         util.tableEnv()
                 .executeSql(
                         "CREATE TABLE t2 (\n"
@@ -78,6 +86,7 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
                                 + " 'bounded' = 'true',\n"
                                 + " 'enable-scan-range' = 'true'\n"
                                 + ")");
+
         util.tableEnv()
                 .executeSql(
                         "CREATE TABLE sink (\n"
@@ -87,6 +96,91 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
                                 + " 'bounded' = 'true',\n"
                                 + " 'enable-overwrite' = 'true'\n"
                                 + ")");
+    }
+
+    @Test
+    public void testIncrementalProcessingShuttleWithAutoScanRange() {
+        String sql = "INSERT OVERWRITE sink SELECT a FROM t1;";
+        List<Operation> operationList = util.getPlanner().getParser().parse(sql);
+        RelNode origin =
+                TableTestUtil.toRelNode(util.tableEnv(), (ModifyOperation) operationList.get(0));
+
+        IncrementalProcessingShuttle shuttle =
+                new IncrementalProcessingShuttle(util.tableConfig(), null);
+        long before = System.currentTimeMillis();
+        origin.accept(shuttle);
+        long after = System.currentTimeMillis();
+
+        assertThat(shuttle.getCachedStartOffsets().getOffsets().values()).containsExactly(-1L);
+        assertThat(
+                        shuttle.getCachedEndOffsets().getOffsets().values().stream()
+                                .allMatch(v -> before <= v && v <= after))
+                .isTrue();
+    }
+
+    @Test
+    public void testIncrementalProcessingShuttleWithAutoRestoredScanRange() {
+        String sql = "INSERT OVERWRITE sink SELECT a FROM t1;";
+        List<Operation> operationList = util.getPlanner().getParser().parse(sql);
+        RelNode origin =
+                TableTestUtil.toRelNode(util.tableEnv(), (ModifyOperation) operationList.get(0));
+
+        long expectedStart = System.currentTimeMillis();
+        // mock restored source offsets
+        SourceOffsets restoredOffsets = new SourceOffsets();
+        restoredOffsets.setOffset(getFullyQualifiedName("t1"), expectedStart);
+        IncrementalProcessingShuttle shuttle =
+                new IncrementalProcessingShuttle(util.tableConfig(), restoredOffsets);
+        long before = System.currentTimeMillis();
+        origin.accept(shuttle);
+        long after = System.currentTimeMillis();
+
+        assertThat(shuttle.getCachedStartOffsets().getOffsets().values())
+                .containsExactly(expectedStart);
+        assertThat(
+                        shuttle.getCachedEndOffsets().getOffsets().values().stream()
+                                .allMatch(v -> before <= v && v <= after))
+                .isTrue();
+    }
+
+    @Test
+    public void testIncrementalProcessingShuttleWithSpecifiedScanRange() {
+        util.tableConfig()
+                .set(
+                        BatchIncrementalExecutionOptions.INCREMENTAL_SCAN_RANGE_START_TIMESTAMP,
+                        "2024-12-16 00:00:00");
+        util.tableConfig()
+                .set(
+                        BatchIncrementalExecutionOptions.INCREMENTAL_SCAN_RANGE_END_TIMESTAMP,
+                        "2024-12-16 00:05:00");
+
+        String sql = "INSERT OVERWRITE sink SELECT a FROM t1;";
+        List<Operation> operationList = util.getPlanner().getParser().parse(sql);
+        RelNode origin =
+                TableTestUtil.toRelNode(util.tableEnv(), (ModifyOperation) operationList.get(0));
+
+        IncrementalProcessingShuttle shuttle =
+                new IncrementalProcessingShuttle(util.tableConfig(), null);
+        origin.accept(shuttle);
+        long expectedStart =
+                LocalDateTime.parse(
+                                "2024-12-16 00:00:00",
+                                DateTimeFormatter.ofPattern(SCAN_RANGE_TIMESTAMP_FORMAT))
+                        .atZone(ZoneId.systemDefault())
+                        .toInstant()
+                        .toEpochMilli();
+        long expectedEnd =
+                LocalDateTime.parse(
+                                "2024-12-16 00:05:00",
+                                DateTimeFormatter.ofPattern(SCAN_RANGE_TIMESTAMP_FORMAT))
+                        .atZone(ZoneId.systemDefault())
+                        .toInstant()
+                        .toEpochMilli();
+
+        assertThat(shuttle.getCachedStartOffsets().getOffsets().values())
+                .containsExactly(expectedStart);
+        assertThat(shuttle.getCachedEndOffsets().getOffsets().values())
+                .containsExactly(expectedEnd);
     }
 
     @Test
@@ -120,6 +214,7 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
                                 + " 'connector' = 'values',\n"
                                 + " 'bounded' = 'true'\n"
                                 + ")");
+
         String sql = "INSERT OVERWRITE sink SELECT * FROM t0;";
         assertUnsupported(sql);
     }
@@ -203,6 +298,7 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
                                 + " 'bounded' = 'true',\n"
                                 + " 'enable-scan-range' = 'true'\n"
                                 + ")");
+
         String sql =
                 "INSERT OVERWRITE sink SELECT t1.a FROM t1 JOIN t2 on t1.a = t2.a JOIN t3 on t1.a = t3.a;";
         assertSupportedPlans(sql, 3, null);
@@ -221,6 +317,7 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
                                 + " 'bounded' = 'true',\n"
                                 + " 'enable-overwrite' = 'true'\n"
                                 + ")");
+
         String sql = "INSERT OVERWRITE aggSink SELECT a, AVG(a) FROM t1 GROUP BY a;";
         assertUnsupported(sql);
     }
@@ -241,6 +338,7 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
         List<Operation> operationList = util.getPlanner().getParser().parse(sql);
         assertThat(operationList.size()).isEqualTo(1);
         assertThat(operationList.get(0)).isInstanceOf(ModifyOperation.class);
+
         RelNode origin =
                 TableTestUtil.toRelNode(util.tableEnv(), (ModifyOperation) operationList.get(0));
         RelNode incremental =
@@ -253,9 +351,11 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
         List<Operation> operationList = util.getPlanner().getParser().parse(sql);
         assertThat(operationList.size()).isEqualTo(1);
         assertThat(operationList.get(0)).isInstanceOf(ModifyOperation.class);
+
         RelNode origin =
                 TableTestUtil.toRelNode(util.tableEnv(), (ModifyOperation) operationList.get(0));
         util.assertEqualsOrExpand("origin", getStringFromRelNode(origin), true);
+
         IncrementalProcessingShuttle shuttle =
                 new IncrementalProcessingShuttle(util.tableConfig(), restoredOffsets);
         RelNode incremental = origin.accept(shuttle);
@@ -281,6 +381,7 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
 
     /** Catalog which supports {@link Catalog#getTableTimestamp(ObjectPath, long)}. */
     private static class MockCatalog extends GenericInMemoryCatalog {
+
         public MockCatalog(String name) {
             super(name);
         }
