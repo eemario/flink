@@ -220,7 +220,7 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
     }
 
     @Test
-    public void testIncrementalProcessingShuttleWithJoinPkTable() {
+    public void testIncrementalProcessingShuttleWithPkTable() {
         // Unsupported for now.
         util.tableEnv()
                 .executeSql(
@@ -232,7 +232,7 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
                                 + " 'enable-scan-range' = 'true'\n"
                                 + ")");
 
-        String sql = "INSERT OVERWRITE sink SELECT t1_pk.a FROM t1_pk JOIN t2 on t1_pk.a = t2.a;";
+        String sql = "INSERT OVERWRITE sink SELECT t1_pk.a FROM t1_pk;";
         assertUnsupported(sql);
     }
 
