@@ -142,8 +142,6 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
     /** Empty RelNodes that can be removed in DELTA join. */
     private final Set<RelNode> emptyRelNodeSet = new HashSet<>();
 
-    private boolean hasJoin = false;
-
     public IncrementalProcessingShuttle(
             TableConfig tableConfig, @Nullable SourceOffsets restoredOffsets) {
         super();
@@ -172,7 +170,6 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
             return visitSink((LogicalSink) rel, targetTimeType);
         } else if (rel instanceof LogicalJoin) {
             // Only supports INNER join for now
-            hasJoin = true;
             LogicalJoin join = (LogicalJoin) rel;
             if (join.getJoinType() != JoinRelType.INNER) {
                 return null;
@@ -292,16 +289,15 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
             return null;
         }
 
-        // TODO remove this check after supporting upsert data for JOIN
-        if (hasJoin
-                && tableSourceTable
-                        .contextResolvedTable()
-                        .getResolvedTable()
-                        .getResolvedSchema()
-                        .getPrimaryKey()
-                        .isPresent()) {
+        // TODO optimize this check after supporting retract data
+        if (tableSourceTable
+                .contextResolvedTable()
+                .getResolvedTable()
+                .getResolvedSchema()
+                .getPrimaryKey()
+                .isPresent()) {
             LOG.info(
-                    "The query contains JOIN and primary key table {}. Failed to generate an incremental plan.",
+                    "The query contains primary key table {}. Failed to generate an incremental plan.",
                     tableScan.getTable().getQualifiedName());
             return null;
         }
