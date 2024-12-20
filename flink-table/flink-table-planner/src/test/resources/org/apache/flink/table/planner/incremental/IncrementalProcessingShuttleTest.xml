@@ -103,7 +103,48 @@ Sink(table=[testCatalog.default.sink], fields=[a])
 ]]>
 		</Resource>
 	</TestCase>
-	<TestCase name="testIncrementalProcessingShuttleWithJoinFallbackToFullPlan">
+	<TestCase name="testIncrementalProcessingShuttleWithJoinEmptyDelta">
+		<Resource name="origin">
+			<![CDATA[LogicalSink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a)]
++- LogicalProject(a=[$0]), rowType=[RecordType(BIGINT a)]
+   +- LogicalJoin(condition=[=($0, $1)], joinType=[inner]), rowType=[RecordType(BIGINT a, BIGINT a0)]
+      :- LogicalTableScan(table=[[testCatalog, default, t1]]), rowType=[RecordType(BIGINT a)]
+      +- LogicalTableScan(table=[[testCatalog, default, t2]]), rowType=[RecordType(BIGINT a)]
+]]>
+		</Resource>
+		<Resource name="ast">
+			<![CDATA[
+LogicalSink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a)]
++- LogicalProject(a=[$0]), rowType=[RecordType(BIGINT a)]
+   +- LogicalJoin(condition=[=($0, $1)], joinType=[inner]), rowType=[RecordType(BIGINT a, BIGINT a0)]
+      :- LogicalTableScan(table=[[testCatalog, default, t1]], hints=[[[OPTIONS inheritPath:[] options:{scan-mode=FULL_NEW}]]]), rowType=[RecordType(BIGINT a)]
+      +- LogicalTableScan(table=[[testCatalog, default, t2]], hints=[[[OPTIONS inheritPath:[] options:{scan-mode=DELTA}]]]), rowType=[RecordType(BIGINT a)]
+]]>
+		</Resource>
+		<Resource name="optimized rel plan">
+			<![CDATA[
+Sink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a)]
++- Calc(select=[a]), rowType=[RecordType(BIGINT a)]
+   +- HashJoin(joinType=[InnerJoin], where=[=(a, a0)], select=[a, a0], build=[right]), rowType=[RecordType(BIGINT a, BIGINT a0)]
+      :- Exchange(distribution=[hash[a]]), rowType=[RecordType(BIGINT a)]
+      :  +- TableSourceScan(table=[[testCatalog, default, t1]], fields=[a], hints=[[[OPTIONS options:{scan-mode=FULL_NEW}]]]), rowType=[RecordType(BIGINT a)]
+      +- Exchange(distribution=[hash[a]]), rowType=[RecordType(BIGINT a)]
+         +- TableSourceScan(table=[[testCatalog, default, t2]], fields=[a], hints=[[[OPTIONS options:{scan-mode=DELTA}]]]), rowType=[RecordType(BIGINT a)]
+]]>
+		</Resource>
+		<Resource name="optimized exec plan">
+			<![CDATA[
+Sink(table=[testCatalog.default.sink], fields=[a])
++- Calc(select=[a])
+   +- HashJoin(joinType=[InnerJoin], where=[(a = a0)], select=[a, a0], build=[right])
+      :- Exchange(distribution=[hash[a]])
+      :  +- TableSourceScan(table=[[testCatalog, default, t1]], fields=[a], hints=[[[OPTIONS options:{scan-mode=FULL_NEW}]]])
+      +- Exchange(distribution=[hash[a]])
+         +- TableSourceScan(table=[[testCatalog, default, t2]], fields=[a], hints=[[[OPTIONS options:{scan-mode=DELTA}]]])
+]]>
+		</Resource>
+	</TestCase>
+	<TestCase name="testIncrementalProcessingShuttleWithJoinFirstRun">
 		<Resource name="origin">
 			<![CDATA[LogicalSink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a)]
 +- LogicalProject(a=[$0]), rowType=[RecordType(BIGINT a)]
@@ -231,7 +272,58 @@ Sink(table=[testCatalog.default.sink], fields=[a])
 ]]>
 		</Resource>
 	</TestCase>
-	<TestCase name="testIncrementalProcessingShuttleWithMultipleJoinsFallbackToFullPlan">
+	<TestCase name="testIncrementalProcessingShuttleWithMultipleJoinsEmptyDelta">
+		<Resource name="origin">
+			<![CDATA[LogicalSink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a)]
++- LogicalProject(a=[$0]), rowType=[RecordType(BIGINT a)]
+   +- LogicalJoin(condition=[=($0, $2)], joinType=[inner]), rowType=[RecordType(BIGINT a, BIGINT a0, BIGINT a1)]
+      :- LogicalJoin(condition=[=($0, $1)], joinType=[inner]), rowType=[RecordType(BIGINT a, BIGINT a0)]
+      :  :- LogicalTableScan(table=[[testCatalog, default, t1]]), rowType=[RecordType(BIGINT a)]
+      :  +- LogicalTableScan(table=[[testCatalog, default, t2]]), rowType=[RecordType(BIGINT a)]
+      +- LogicalTableScan(table=[[testCatalog, default, t3]]), rowType=[RecordType(BIGINT a)]
+]]>
+		</Resource>
+		<Resource name="ast">
+			<![CDATA[
+LogicalSink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a)]
++- LogicalProject(a=[$0]), rowType=[RecordType(BIGINT a)]
+   +- LogicalJoin(condition=[=($0, $2)], joinType=[inner]), rowType=[RecordType(BIGINT a, BIGINT a0, BIGINT a1)]
+      :- LogicalJoin(condition=[=($0, $1)], joinType=[inner]), rowType=[RecordType(BIGINT a, BIGINT a0)]
+      :  :- LogicalTableScan(table=[[testCatalog, default, t1]], hints=[[[OPTIONS inheritPath:[] options:{scan-mode=FULL_NEW}]]]), rowType=[RecordType(BIGINT a)]
+      :  +- LogicalTableScan(table=[[testCatalog, default, t2]], hints=[[[OPTIONS inheritPath:[] options:{scan-mode=FULL_NEW}]]]), rowType=[RecordType(BIGINT a)]
+      +- LogicalTableScan(table=[[testCatalog, default, t3]], hints=[[[OPTIONS inheritPath:[] options:{scan-mode=DELTA}]]]), rowType=[RecordType(BIGINT a)]
+]]>
+		</Resource>
+		<Resource name="optimized rel plan">
+			<![CDATA[
+Sink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a)]
++- Calc(select=[a]), rowType=[RecordType(BIGINT a)]
+   +- HashJoin(joinType=[InnerJoin], where=[=(a, a0)], select=[a, a0], build=[left]), rowType=[RecordType(BIGINT a, BIGINT a0)]
+      :- Calc(select=[a]), rowType=[RecordType(BIGINT a)]
+      :  +- HashJoin(joinType=[InnerJoin], where=[=(a, a0)], select=[a, a0], build=[right]), rowType=[RecordType(BIGINT a, BIGINT a0)]
+      :     :- Exchange(distribution=[hash[a]]), rowType=[RecordType(BIGINT a)]
+      :     :  +- TableSourceScan(table=[[testCatalog, default, t1]], fields=[a], hints=[[[OPTIONS options:{scan-mode=FULL_NEW}]]]), rowType=[RecordType(BIGINT a)]
+      :     +- Exchange(distribution=[hash[a]]), rowType=[RecordType(BIGINT a)]
+      :        +- TableSourceScan(table=[[testCatalog, default, t2]], fields=[a], hints=[[[OPTIONS options:{scan-mode=FULL_NEW}]]]), rowType=[RecordType(BIGINT a)]
+      +- Exchange(distribution=[hash[a]]), rowType=[RecordType(BIGINT a)]
+         +- TableSourceScan(table=[[testCatalog, default, t3]], fields=[a], hints=[[[OPTIONS options:{scan-mode=DELTA}]]]), rowType=[RecordType(BIGINT a)]
+]]>
+		</Resource>
+		<Resource name="optimized exec plan">
+			<![CDATA[
+Sink(table=[testCatalog.default.sink], fields=[a])
++- Calc(select=[a])
+   +- MultipleInput(readOrder=[2,1,0], members=[\nHashJoin(joinType=[InnerJoin], where=[(a = a0)], select=[a, a0], build=[left])\n:- Calc(select=[a])\n:  +- HashJoin(joinType=[InnerJoin], where=[(a = a0)], select=[a, a0], build=[right])\n:     :- [#2] Exchange(distribution=[hash[a]])\n:     +- [#3] Exchange(distribution=[hash[a]])\n+- [#1] Exchange(distribution=[hash[a]])\n])
+      :- Exchange(distribution=[hash[a]])
+      :  +- TableSourceScan(table=[[testCatalog, default, t3]], fields=[a], hints=[[[OPTIONS options:{scan-mode=DELTA}]]])
+      :- Exchange(distribution=[hash[a]])
+      :  +- TableSourceScan(table=[[testCatalog, default, t1]], fields=[a], hints=[[[OPTIONS options:{scan-mode=FULL_NEW}]]])
+      +- Exchange(distribution=[hash[a]])
+         +- TableSourceScan(table=[[testCatalog, default, t2]], fields=[a], hints=[[[OPTIONS options:{scan-mode=FULL_NEW}]]])
+]]>
+		</Resource>
+	</TestCase>
+	<TestCase name="testIncrementalProcessingShuttleWithMultipleJoinsFirstRun">
 		<Resource name="origin">
 			<![CDATA[LogicalSink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a)]
 +- LogicalProject(a=[$0]), rowType=[RecordType(BIGINT a)]
