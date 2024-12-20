@@ -260,7 +260,28 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
     }
 
     @Test
-    public void testIncrementalProcessingShuttleWithJoinFallbackToFullPlan() {
+    public void testIncrementalProcessingShuttleWithJoinEmptyDelta() {
+        // mock empty delta data
+        util.tableConfig()
+                .set(
+                        BatchIncrementalExecutionOptions.INCREMENTAL_SCAN_RANGE_START_TIMESTAMP,
+                        "2024-12-19 00:00:00");
+        util.tableConfig()
+                .set(
+                        BatchIncrementalExecutionOptions.INCREMENTAL_SCAN_RANGE_END_TIMESTAMP,
+                        "2024-12-19 00:00:00");
+
+        // mock restored source offsets
+        SourceOffsets restoredOffsets = new SourceOffsets();
+        restoredOffsets.setOffset(getFullyQualifiedName("t1"), System.currentTimeMillis());
+        restoredOffsets.setOffset(getFullyQualifiedName("t2"), System.currentTimeMillis());
+
+        String sql = "INSERT OVERWRITE sink SELECT t1.a FROM t1 JOIN t2 on t1.a = t2.a;";
+        assertSupportedPlans(sql, 2, restoredOffsets);
+    }
+
+    @Test
+    public void testIncrementalProcessingShuttleWithJoinFirstRun() {
         String sql = "INSERT OVERWRITE sink SELECT t1.a FROM t1 JOIN t2 on t1.a = t2.a;";
         assertSupportedPlans(sql, 2, null);
     }
@@ -288,7 +309,39 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
     }
 
     @Test
-    public void testIncrementalProcessingShuttleWithMultipleJoinsFallbackToFullPlan() {
+    public void testIncrementalProcessingShuttleWithMultipleJoinsEmptyDelta() {
+        // mock empty delta data
+        util.tableConfig()
+                .set(
+                        BatchIncrementalExecutionOptions.INCREMENTAL_SCAN_RANGE_START_TIMESTAMP,
+                        "2024-12-19 00:00:00");
+        util.tableConfig()
+                .set(
+                        BatchIncrementalExecutionOptions.INCREMENTAL_SCAN_RANGE_END_TIMESTAMP,
+                        "2024-12-19 00:00:00");
+
+        util.tableEnv()
+                .executeSql(
+                        "CREATE TABLE t3 (\n"
+                                + "  a BIGINT\n"
+                                + ") WITH (\n"
+                                + " 'connector' = 'values',\n"
+                                + " 'bounded' = 'true',\n"
+                                + " 'enable-scan-range' = 'true'\n"
+                                + ")");
+        // mock restored source offsets
+        SourceOffsets restoredOffsets = new SourceOffsets();
+        restoredOffsets.setOffset(getFullyQualifiedName("t1"), System.currentTimeMillis());
+        restoredOffsets.setOffset(getFullyQualifiedName("t2"), System.currentTimeMillis());
+        restoredOffsets.setOffset(getFullyQualifiedName("t3"), System.currentTimeMillis());
+
+        String sql =
+                "INSERT OVERWRITE sink SELECT t1.a FROM t1 JOIN t2 on t1.a = t2.a JOIN t3 on t1.a = t3.a;";
+        assertSupportedPlans(sql, 3, restoredOffsets);
+    }
+
+    @Test
+    public void testIncrementalProcessingShuttleWithMultipleJoinsFirstRun() {
         util.tableEnv()
                 .executeSql(
                         "CREATE TABLE t3 (\n"

@@ -240,42 +240,58 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
     private RelNode visitInnerJoin(LogicalJoin join, IncrementalTimeType targetTimeType) {
         if (targetTimeType != IncrementalTimeType.DELTA) {
             return defaultVisit(join, targetTimeType);
-        } else {
-            RelNode leftL = join.getLeft();
-            timeTypeMap.put(leftL, IncrementalTimeType.FULL_NEW);
-            RelNode newLeftL = leftL.accept(this);
-            if (newLeftL == null) {
-                return null;
-            }
-            RelNode rightL = join.getRight();
-            timeTypeMap.put(rightL, IncrementalTimeType.DELTA);
-            RelNode newRightL = rightL.accept(this);
-            if (newRightL == null) {
-                return null;
-            }
-            RelNode joinL = join.copy(join.getTraitSet(), Arrays.asList(newLeftL, newRightL));
-
-            RelNode rightR = rightL.copy(rightL.getTraitSet(), rightL.getInputs());
-            timeTypeMap.put(rightR, IncrementalTimeType.FULL_OLD);
-            RelNode newRightR = rightR.accept(this);
-            if (newRightR == null) {
-                return null;
-            }
-            if (emptyRelNodeSet.contains(newRightR)) {
-                // if the FULL_OLD side is empty, which indicates that this is the first run of
-                // incremental processing, the DELTA join plan can be simplified
-                return joinL;
-            }
-
-            RelNode leftR = leftL.copy(leftL.getTraitSet(), leftL.getInputs());
-            timeTypeMap.put(leftR, IncrementalTimeType.DELTA);
-            RelNode newLeftR = leftR.accept(this);
-            if (newLeftR == null) {
-                return null;
-            }
-            RelNode joinR = join.copy(join.getTraitSet(), Arrays.asList(newLeftR, newRightR));
-            return LogicalUnion.create(Arrays.asList(joinL, joinR), true);
         }
+
+        boolean leftCanBeRemoved = false;
+        RelNode leftL = join.getLeft();
+        timeTypeMap.put(leftL, IncrementalTimeType.FULL_NEW);
+        RelNode newLeftL = leftL.accept(this);
+        if (newLeftL == null) {
+            return null;
+        }
+        RelNode rightL = join.getRight();
+        timeTypeMap.put(rightL, IncrementalTimeType.DELTA);
+        RelNode newRightL = rightL.accept(this);
+        if (newRightL == null) {
+            return null;
+        }
+        RelNode joinL = join.copy(join.getTraitSet(), Arrays.asList(newLeftL, newRightL));
+        if (emptyRelNodeSet.contains(newRightL)) {
+            // if the DELTA side is empty, which indicates that there is no data since last
+            // incremental processing, the DELTA join plan can be simplified
+            leftCanBeRemoved = true;
+            emptyRelNodeSet.add(joinL);
+        }
+
+        RelNode rightR = rightL.copy(rightL.getTraitSet(), rightL.getInputs());
+        timeTypeMap.put(rightR, IncrementalTimeType.FULL_OLD);
+        RelNode newRightR = rightR.accept(this);
+        if (newRightR == null) {
+            return null;
+        }
+        if (emptyRelNodeSet.contains(newRightR)) {
+            // if the FULL_OLD side is empty, which indicates that this is the first run of
+            // incremental processing, the DELTA join plan can be simplified
+            return joinL;
+        }
+
+        RelNode leftR = leftL.copy(leftL.getTraitSet(), leftL.getInputs());
+        timeTypeMap.put(leftR, IncrementalTimeType.DELTA);
+        RelNode newLeftR = leftR.accept(this);
+        if (newLeftR == null) {
+            return null;
+        }
+        if (emptyRelNodeSet.contains(newLeftR)) {
+            // if the DELTA side is empty, which indicates that there is no data since last
+            // incremental processing, the DELTA join plan can be simplified
+            return joinL;
+        }
+
+        RelNode joinR = join.copy(join.getTraitSet(), Arrays.asList(newLeftR, newRightR));
+        if (leftCanBeRemoved) {
+            return joinR;
+        }
+        return LogicalUnion.create(Arrays.asList(joinL, joinR), true);
     }
 
     private RelNode visitTableScan(LogicalTableScan tableScan, IncrementalTimeType targetTimeType) {
@@ -357,7 +373,7 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
         LogicalTableScan newTableScan =
                 LogicalTableScan.create(tableScan.getCluster(), newTableSourceTable, newHints);
 
-        if (scanEndOffset == EARLIEST) {
+        if (scanEndOffset == scanStartOffset) {
             LOG.info(
                     "The {} scan range for table {} is ({},{}] and may be optimized in DELTA join",
                     targetTimeType,
