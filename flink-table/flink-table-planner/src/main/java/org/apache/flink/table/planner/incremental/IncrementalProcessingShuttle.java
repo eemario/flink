@@ -28,6 +28,7 @@ import org.apache.flink.table.connector.sink.abilities.SupportsOverwrite;
 import org.apache.flink.table.connector.source.ScanTableSource;
 import org.apache.flink.table.connector.source.abilities.SupportsScanRange;
 import org.apache.flink.table.delegation.Planner;
+import org.apache.flink.table.planner.functions.bridging.BridgingSqlFunction;
 import org.apache.flink.table.planner.hint.FlinkHints;
 import org.apache.flink.table.planner.plan.abilities.sink.OverwriteSpec;
 import org.apache.flink.table.planner.plan.abilities.sink.SinkAbilitySpec;
@@ -38,14 +39,19 @@ import org.apache.flink.table.planner.plan.utils.DefaultRelShuttle;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.JoinRelType;
 import org.apache.calcite.rel.hint.RelHint;
+import org.apache.calcite.rel.logical.LogicalCorrelate;
 import org.apache.calcite.rel.logical.LogicalFilter;
 import org.apache.calcite.rel.logical.LogicalJoin;
 import org.apache.calcite.rel.logical.LogicalProject;
+import org.apache.calcite.rel.logical.LogicalTableFunctionScan;
 import org.apache.calcite.rel.logical.LogicalTableScan;
 import org.apache.calcite.rel.logical.LogicalUnion;
 import org.apache.calcite.rex.RexCall;
+import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.rex.RexShuttle;
 import org.apache.calcite.rex.RexSubQuery;
-import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.sql.SqlOperator;
+import org.apache.calcite.sql.validate.SqlNameMatchers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -126,9 +132,6 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
 
     private static final long EARLIEST = -1;
 
-    private static final Set<SqlKind> SUPPORTED_REXCALL_KINDS =
-            new HashSet<>(Arrays.asList(SqlKind.EQUALS));
-
     private final Map<RelNode, IncrementalTimeType> timeTypeMap = new HashMap<>();
     private final TableConfig tableConfig;
     @Nullable private final SourceOffsets restoredOffsets;
@@ -165,7 +168,7 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
         IncrementalTimeType targetTimeType =
                 timeTypeMap.getOrDefault(rel, IncrementalTimeType.DELTA);
         if (rel instanceof LogicalProject) {
-            return defaultVisit(rel, targetTimeType);
+            return visitProject((LogicalProject) rel, targetTimeType);
         } else if (rel instanceof LogicalSink) {
             return visitSink((LogicalSink) rel, targetTimeType);
         } else if (rel instanceof LogicalJoin) {
@@ -179,6 +182,8 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
             return visitTableScan((LogicalTableScan) rel, targetTimeType);
         } else if (rel instanceof LogicalFilter) {
             return visitFilter((LogicalFilter) rel, targetTimeType);
+        } else if (rel instanceof LogicalCorrelate) {
+            return visitCorrelate((LogicalCorrelate) rel, targetTimeType);
         }
         // TODO Support other RelNodes
         LOG.info("Unsupported RelNode: {}.", rel.getClass().getName());
@@ -386,20 +391,60 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
     }
 
     private RelNode visitFilter(LogicalFilter filter, IncrementalTimeType targetTimeType) {
-        // Only supports SUPPORTED_REXCALL_KINDS without sub queries for now
-        if (filter.getCondition() instanceof RexCall) {
-            RexCall rexCall = (RexCall) filter.getCondition();
-            if (SUPPORTED_REXCALL_KINDS.contains(rexCall.getKind())) {
-                if (!rexCall.getOperands().stream().anyMatch(r -> r instanceof RexSubQuery)) {
-                    return defaultVisit(filter, targetTimeType);
-                }
+        RexNode condition = filter.getCondition();
+        if (!RexNodeChecker.canSupport(condition)) {
+            LOG.info(
+                    "Unsupported filter {}. Failed to generate an incremental plan.",
+                    filter.explain());
+            return null;
+        }
+
+        return defaultVisit(filter, targetTimeType);
+    }
+
+    private RelNode visitProject(LogicalProject project, IncrementalTimeType targetTimeType) {
+        for (RexNode rexNode : project.getProjects()) {
+            if (!RexNodeChecker.canSupport(rexNode)) {
+                LOG.info(
+                        "Unsupported project {}. Failed to generate an incremental plan.",
+                        project.explain());
+                return null;
             }
         }
-        LOG.info(
-                "Only supports filter {} without sub queries, but meets {}.",
-                SUPPORTED_REXCALL_KINDS,
-                filter.explain());
-        return null;
+
+        return defaultVisit(project, targetTimeType);
+    }
+
+    private RelNode visitCorrelate(LogicalCorrelate correlate, IncrementalTimeType targetTimeType) {
+        if (!(correlate.getRight() instanceof LogicalTableFunctionScan)) {
+            LOG.info(
+                    "Only supports correlate for LATERAL TABLE(FUNCTION()), but meets {}. Failed to generate an incremental plan.",
+                    correlate.explain());
+            return null;
+        }
+
+        LogicalTableFunctionScan tableFunctionScan =
+                (LogicalTableFunctionScan) correlate.getRight();
+        if (!(RexNodeChecker.canSupport(tableFunctionScan.getCall()))) {
+            LOG.info(
+                    "Unsupported correlate {}. Failed to generate an incremental plan.",
+                    correlate.explain());
+            return null;
+        }
+
+        RelNode input = correlate.getLeft();
+        timeTypeMap.put(input, targetTimeType);
+        RelNode newInput = input.accept(this);
+        if (newInput == null) {
+            return null;
+        }
+        RelNode newRelNode =
+                correlate.copy(
+                        correlate.getTraitSet(), Arrays.asList(newInput, correlate.getRight()));
+        if (emptyRelNodeSet.contains(newInput)) {
+            emptyRelNodeSet.add(newRelNode);
+        }
+        return newRelNode;
     }
 
     private long getScanRangeStart(ObjectIdentifier sourceIdentifier, Catalog catalog) {
@@ -465,6 +510,57 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
                             + raw
                             + ", should be: "
                             + SCAN_RANGE_TIMESTAMP_FORMAT);
+        }
+    }
+
+    private static class RexNodeChecker {
+        public static boolean canSupport(RexNode root) {
+            RexNodeCheckerShuttle shuttle = new RexNodeCheckerShuttle();
+            root.accept(shuttle);
+            return shuttle.canSupport();
+        }
+
+        private static class RexNodeCheckerShuttle extends RexShuttle {
+            private boolean canSupport = true;
+
+            @Override
+            public RexNode visitSubQuery(RexSubQuery subQuery) {
+                LOG.info("Sub-queries are not supported.");
+                canSupport = false;
+                return subQuery;
+            }
+
+            @Override
+            public RexNode visitCall(RexCall call) {
+                SqlOperator sqlOperator = call.getOperator();
+                if (sqlOperator instanceof BridgingSqlFunction) {
+                    // it's a user-defined scalar or table function
+                    // TODO further check the definition of the function
+                } else {
+                    IncrementalSqlOperatorTable incrementalSqlOperatorTable =
+                            IncrementalSqlOperatorTable.instance();
+                    final List<SqlOperator> found = new ArrayList<>();
+                    incrementalSqlOperatorTable.lookupOperatorOverloads(
+                            sqlOperator.getNameAsId(),
+                            null,
+                            sqlOperator.getSyntax(),
+                            found,
+                            SqlNameMatchers.withCaseSensitive(false));
+                    if (found.isEmpty()) {
+                        LOG.info("Unsupported sql operator {}", sqlOperator.getName());
+                        canSupport = false;
+                        return call;
+                    }
+                }
+                for (RexNode operand : call.getOperands()) {
+                    operand.accept(this);
+                }
+                return call;
+            }
+
+            public boolean canSupport() {
+                return canSupport;
+            }
         }
     }
 }
