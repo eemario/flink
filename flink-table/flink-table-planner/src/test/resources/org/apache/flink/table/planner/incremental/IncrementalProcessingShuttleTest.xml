@@ -1,53 +1,19 @@
 <?xml version="1.0" ?>
 <!--
-  ~ Licensed to the Apache Software Foundation (ASF) under one
-  ~ or more contributor license agreements.  See the NOTICE file
-  ~ distributed with this work for additional information
-  ~ regarding copyright ownership.  The ASF licenses this file
-  ~ to you under the Apache License, Version 2.0 (the
-  ~ "License"); you may not use this file except in compliance
-  ~ with the License.  You may obtain a copy of the License at
-  ~
-  ~     http://www.apache.org/licenses/LICENSE-2.0
-  ~
-  ~ Unless required by applicable law or agreed to in writing, software
-  ~ distributed under the License is distributed on an "AS IS" BASIS,
-  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  ~ See the License for the specific language governing permissions and
-  ~ limitations under the License.
-  -->
+Licensed to the Apache Software Foundation (ASF) under one or more
+contributor license agreements.  See the NOTICE file distributed with
+this work for additional information regarding copyright ownership.
+The ASF licenses this file to you under the Apache License, Version 2.0
+(the "License"); you may not use this file except in compliance with
+the License.  You may obtain a copy of the License at
+http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
 <Root>
-	<TestCase name="testIncrementalProcessingShuttleWithFilter">
-		<Resource name="origin">
-			<![CDATA[LogicalSink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a)]
-+- LogicalProject(a=[$0]), rowType=[RecordType(BIGINT a)]
-   +- LogicalFilter(condition=[=($0, 0)]), rowType=[RecordType(BIGINT a)]
-      +- LogicalTableScan(table=[[testCatalog, default, t1]]), rowType=[RecordType(BIGINT a)]
-]]>
-		</Resource>
-		<Resource name="ast">
-			<![CDATA[
-LogicalSink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a)]
-+- LogicalProject(a=[$0]), rowType=[RecordType(BIGINT a)]
-   +- LogicalFilter(condition=[=($0, 0)]), rowType=[RecordType(BIGINT a)]
-      +- LogicalTableScan(table=[[testCatalog, default, t1]], hints=[[[OPTIONS inheritPath:[] options:{scan-mode=DELTA}]]]), rowType=[RecordType(BIGINT a)]
-]]>
-		</Resource>
-		<Resource name="optimized rel plan">
-			<![CDATA[
-Sink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a)]
-+- Calc(select=[CAST(0 AS BIGINT) AS a], where=[=(a, 0)]), rowType=[RecordType(BIGINT a)]
-   +- TableSourceScan(table=[[testCatalog, default, t1, filter=[]]], fields=[a], hints=[[[OPTIONS options:{scan-mode=DELTA}]]]), rowType=[RecordType(BIGINT a)]
-]]>
-		</Resource>
-		<Resource name="optimized exec plan">
-			<![CDATA[
-Sink(table=[testCatalog.default.sink], fields=[a])
-+- Calc(select=[CAST(0 AS BIGINT) AS a], where=[(a = 0)])
-   +- TableSourceScan(table=[[testCatalog, default, t1, filter=[]]], fields=[a], hints=[[[OPTIONS options:{scan-mode=DELTA}]]])
-]]>
-		</Resource>
-	</TestCase>
 	<TestCase name="testIncrementalProcessingShuttleWithJoin">
 		<Resource name="origin">
 			<![CDATA[LogicalSink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a)]
@@ -398,6 +364,101 @@ Sink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a
 			<![CDATA[
 Sink(table=[testCatalog.default.sink], fields=[a])
 +- TableSourceScan(table=[[testCatalog, default, t1]], fields=[a], hints=[[[OPTIONS options:{scan-mode=DELTA}]]])
+]]>
+		</Resource>
+	</TestCase>
+	<TestCase name="testIncrementalProcessingShuttleWithProjectSupportedFunction">
+		<Resource name="origin">
+			<![CDATA[LogicalSink(table=[testCatalog.default.sink], fields=[EXPR$0]), rowType=[RecordType(BIGINT EXPR$0)]
++- LogicalProject(EXPR$0=[CAST(FLOOR(LOG($0))):BIGINT]), rowType=[RecordType(BIGINT EXPR$0)]
+   +- LogicalTableScan(table=[[testCatalog, default, t1]]), rowType=[RecordType(BIGINT a)]
+]]>
+		</Resource>
+		<Resource name="ast">
+			<![CDATA[
+LogicalSink(table=[testCatalog.default.sink], fields=[EXPR$0]), rowType=[RecordType(BIGINT EXPR$0)]
++- LogicalProject(EXPR$0=[CAST(FLOOR(LOG($0))):BIGINT]), rowType=[RecordType(BIGINT EXPR$0)]
+   +- LogicalTableScan(table=[[testCatalog, default, t1]], hints=[[[OPTIONS inheritPath:[] options:{scan-mode=DELTA}]]]), rowType=[RecordType(BIGINT a)]
+]]>
+		</Resource>
+		<Resource name="optimized rel plan">
+			<![CDATA[
+Sink(table=[testCatalog.default.sink], fields=[EXPR$0]), rowType=[RecordType(BIGINT EXPR$0)]
++- Calc(select=[CAST(FLOOR(LOG(a)) AS BIGINT) AS EXPR$0]), rowType=[RecordType(BIGINT EXPR$0)]
+   +- TableSourceScan(table=[[testCatalog, default, t1]], fields=[a], hints=[[[OPTIONS options:{scan-mode=DELTA}]]]), rowType=[RecordType(BIGINT a)]
+]]>
+		</Resource>
+		<Resource name="optimized exec plan">
+			<![CDATA[
+Sink(table=[testCatalog.default.sink], fields=[EXPR$0])
++- Calc(select=[CAST(FLOOR(LOG(a)) AS BIGINT) AS EXPR$0])
+   +- TableSourceScan(table=[[testCatalog, default, t1]], fields=[a], hints=[[[OPTIONS options:{scan-mode=DELTA}]]])
+]]>
+		</Resource>
+	</TestCase>
+	<TestCase name="testIncrementalProcessingShuttleWithFilterSupportedFunction">
+		<Resource name="origin">
+			<![CDATA[LogicalSink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a)]
++- LogicalProject(a=[$0]), rowType=[RecordType(BIGINT a)]
+   +- LogicalFilter(condition=[AND(IS NOT NULL($0), >(CAST(FLOOR(LOG($0))):BIGINT, 0))]), rowType=[RecordType(BIGINT a)]
+      +- LogicalTableScan(table=[[testCatalog, default, t1]]), rowType=[RecordType(BIGINT a)]
+]]>
+		</Resource>
+		<Resource name="ast">
+			<![CDATA[
+LogicalSink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a)]
++- LogicalProject(a=[$0]), rowType=[RecordType(BIGINT a)]
+   +- LogicalFilter(condition=[AND(IS NOT NULL($0), >(CAST(FLOOR(LOG($0))):BIGINT, 0))]), rowType=[RecordType(BIGINT a)]
+      +- LogicalTableScan(table=[[testCatalog, default, t1]], hints=[[[OPTIONS inheritPath:[] options:{scan-mode=DELTA}]]]), rowType=[RecordType(BIGINT a)]
+]]>
+		</Resource>
+		<Resource name="optimized rel plan">
+			<![CDATA[
+Sink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a)]
++- Calc(select=[a], where=[AND(>(CAST(FLOOR(LOG(a)) AS BIGINT), 0), IS NOT NULL(a))]), rowType=[RecordType(BIGINT a)]
+   +- TableSourceScan(table=[[testCatalog, default, t1, filter=[]]], fields=[a], hints=[[[OPTIONS options:{scan-mode=DELTA}]]]), rowType=[RecordType(BIGINT a)]
+]]>
+		</Resource>
+		<Resource name="optimized exec plan">
+			<![CDATA[
+Sink(table=[testCatalog.default.sink], fields=[a])
++- Calc(select=[a], where=[((CAST(FLOOR(LOG(a)) AS BIGINT) > 0) AND a IS NOT NULL)])
+   +- TableSourceScan(table=[[testCatalog, default, t1, filter=[]]], fields=[a], hints=[[[OPTIONS options:{scan-mode=DELTA}]]])
+]]>
+		</Resource>
+	</TestCase>
+	<TestCase name="testIncrementalProcessingShuttleWithUDTF">
+		<Resource name="origin">
+			<![CDATA[LogicalSink(table=[testCatalog.default.exploded_sink], fields=[a, word]), rowType=[RecordType(BIGINT a, VARCHAR(2147483647) word)]
++- LogicalProject(a=[$0], word=[$2]), rowType=[RecordType(BIGINT a, VARCHAR(2147483647) word)]
+   +- LogicalCorrelate(correlation=[$cor0], joinType=[inner], requiredColumns=[{1}]), rowType=[RecordType(BIGINT a, VARCHAR(2147483647) b, VARCHAR(2147483647) word, INTEGER length)]
+      :- LogicalTableScan(table=[[testCatalog, default, t3]]), rowType=[RecordType(BIGINT a, VARCHAR(2147483647) b)]
+      +- LogicalTableFunctionScan(invocation=[TestUDTF($cor0.b)], rowType=[RecordType:peek_no_expand(VARCHAR(2147483647) word, INTEGER length)]), rowType=[RecordType:peek_no_expand(VARCHAR(2147483647) word, INTEGER length)]
+]]>
+		</Resource>
+		<Resource name="ast">
+			<![CDATA[
+LogicalSink(table=[testCatalog.default.exploded_sink], fields=[a, word]), rowType=[RecordType(BIGINT a, VARCHAR(2147483647) word)]
++- LogicalProject(a=[$0], word=[$2]), rowType=[RecordType(BIGINT a, VARCHAR(2147483647) word)]
+   +- LogicalCorrelate(correlation=[$cor0], joinType=[inner], requiredColumns=[{1}]), rowType=[RecordType(BIGINT a, VARCHAR(2147483647) b, VARCHAR(2147483647) word, INTEGER length)]
+      :- LogicalTableScan(table=[[testCatalog, default, t3]], hints=[[[OPTIONS inheritPath:[] options:{scan-mode=DELTA}]]]), rowType=[RecordType(BIGINT a, VARCHAR(2147483647) b)]
+      +- LogicalTableFunctionScan(invocation=[TestUDTF($cor0.b)], rowType=[RecordType:peek_no_expand(VARCHAR(2147483647) word, INTEGER length)]), rowType=[RecordType:peek_no_expand(VARCHAR(2147483647) word, INTEGER length)]
+]]>
+		</Resource>
+		<Resource name="optimized rel plan">
+			<![CDATA[
+Sink(table=[testCatalog.default.exploded_sink], fields=[a, word]), rowType=[RecordType(BIGINT a, VARCHAR(2147483647) word)]
++- Calc(select=[a, word]), rowType=[RecordType(BIGINT a, VARCHAR(2147483647) word)]
+   +- Correlate(invocation=[TestUDTF($cor0.b)], correlate=[table(TestUDTF($cor0.b))], select=[a,b,word,length], rowType=[RecordType(BIGINT a, VARCHAR(2147483647) b, VARCHAR(2147483647) word, INTEGER length)], joinType=[INNER]), rowType=[RecordType(BIGINT a, VARCHAR(2147483647) b, VARCHAR(2147483647) word, INTEGER length)]
+      +- TableSourceScan(table=[[testCatalog, default, t3]], fields=[a, b], hints=[[[OPTIONS options:{scan-mode=DELTA}]]]), rowType=[RecordType(BIGINT a, VARCHAR(2147483647) b)]
+]]>
+		</Resource>
+		<Resource name="optimized exec plan">
+			<![CDATA[
+Sink(table=[testCatalog.default.exploded_sink], fields=[a, word])
++- Calc(select=[a, word])
+   +- Correlate(invocation=[TestUDTF($cor0.b)], correlate=[table(TestUDTF($cor0.b))], select=[a,b,word,length], rowType=[RecordType(BIGINT a, VARCHAR(2147483647) b, VARCHAR(2147483647) word, INTEGER length)], joinType=[INNER])
+      +- TableSourceScan(table=[[testCatalog, default, t3]], fields=[a, b], hints=[[[OPTIONS options:{scan-mode=DELTA}]]])
 ]]>
 		</Resource>
 	</TestCase>

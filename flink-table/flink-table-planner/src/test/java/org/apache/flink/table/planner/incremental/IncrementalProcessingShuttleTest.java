@@ -20,6 +20,8 @@ package org.apache.flink.table.planner.incremental;
 
 import org.apache.flink.configuration.BatchIncrementalExecutionOptions;
 import org.apache.flink.incremental.SourceOffsets;
+import org.apache.flink.table.annotation.DataTypeHint;
+import org.apache.flink.table.annotation.FunctionHint;
 import org.apache.flink.table.api.ExplainDetail;
 import org.apache.flink.table.api.TableConfig;
 import org.apache.flink.table.catalog.Catalog;
@@ -28,12 +30,14 @@ import org.apache.flink.table.catalog.ObjectIdentifier;
 import org.apache.flink.table.catalog.ObjectPath;
 import org.apache.flink.table.catalog.exceptions.CatalogException;
 import org.apache.flink.table.catalog.exceptions.TableNotExistException;
+import org.apache.flink.table.functions.TableFunction;
 import org.apache.flink.table.operations.ModifyOperation;
 import org.apache.flink.table.operations.Operation;
 import org.apache.flink.table.planner.plan.utils.FlinkRelOptUtil;
 import org.apache.flink.table.planner.utils.PlanKind;
 import org.apache.flink.table.planner.utils.TableTestBase;
 import org.apache.flink.table.planner.utils.TableTestUtil;
+import org.apache.flink.types.Row;
 
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.sql.SqlExplainLevel;
@@ -184,13 +188,6 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
     }
 
     @Test
-    public void testIncrementalProcessingShuttleWithUnsupportedFilter() {
-        // Unsupported for now.
-        String sql = "INSERT OVERWRITE sink SELECT * FROM t1 WHERE a IN (SELECT a from t2);";
-        assertUnsupported(sql);
-    }
-
-    @Test
     public void testIncrementalProcessingShuttleWithInsertInto() {
         // Should not support INSERT INTO
         String sql = "INSERT INTO sink SELECT * FROM t1;";
@@ -237,15 +234,43 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
     }
 
     @Test
-    public void testIncrementalProcessingShuttleWithFilter() {
-        String sql = "INSERT OVERWRITE sink SELECT * FROM t1 WHERE a = 0;";
+    public void testIncrementalProcessingShuttleWithFilterSupportedFunction() {
+        String sql =
+                "INSERT OVERWRITE sink SELECT * FROM t1 WHERE a IS NOT NULL AND CAST(FLOOR(LOG(t1.a)) AS BIGINT) > 0;";
         assertSupportedPlans(sql, 1, null);
+    }
+
+    @Test
+    public void testIncrementalProcessingShuttleWithFilterSubQuery() {
+        // Unsupported for now.
+        String sql = "INSERT OVERWRITE sink SELECT * FROM t1 WHERE a IN (SELECT a FROM t2);";
+        assertUnsupported(sql);
     }
 
     @Test
     public void testIncrementalProcessingShuttleWithProject() {
         String sql = "INSERT OVERWRITE sink SELECT a FROM t1;";
         assertSupportedPlans(sql, 1, null);
+    }
+
+    @Test
+    public void testIncrementalProcessingShuttleWithProjectSupportedFunction() {
+        String sql = "INSERT OVERWRITE sink SELECT CAST(FLOOR(LOG(t1.a)) AS BIGINT) FROM t1;";
+        assertSupportedPlans(sql, 1, null);
+    }
+
+    @Test
+    public void testIncrementalProcessingShuttleWithProjectSubQuery() {
+        // Unsupported for now.
+        String sql = "INSERT OVERWRITE sink SELECT (SELECT a FROM t2 WHERE t2.a = t1.a) FROM t1;";
+        assertUnsupported(sql);
+    }
+
+    @Test
+    public void testIncrementalProcessingShuttleWithProjectUnsupportedFunction() {
+        // Unsupported for now.
+        String sql = "INSERT OVERWRITE sink SELECT COUNT(a) FROM t1;";
+        assertUnsupported(sql);
     }
 
     @Test
@@ -382,6 +407,35 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
         assertUnsupported(sql);
     }
 
+    @Test
+    public void testIncrementalProcessingShuttleWithUDTF() {
+        util.tableEnv()
+                .executeSql(
+                        "CREATE TABLE t3 (\n"
+                                + "  a BIGINT,\n"
+                                + "  b STRING\n"
+                                + ") WITH (\n"
+                                + " 'connector' = 'values',\n"
+                                + " 'bounded' = 'true',\n"
+                                + " 'enable-scan-range' = 'true'\n"
+                                + ")");
+        util.tableEnv()
+                .executeSql(
+                        "CREATE TABLE exploded_sink (\n"
+                                + "  a BIGINT,\n"
+                                + "  b STRING\n"
+                                + ") WITH (\n"
+                                + " 'connector' = 'values',\n"
+                                + " 'bounded' = 'true',\n"
+                                + " 'enable-overwrite' = 'true'\n"
+                                + ")");
+        util.tableEnv().createTemporarySystemFunction("TestUDTF", TestUDTF.class);
+
+        String sql =
+                "INSERT OVERWRITE exploded_sink SELECT a, T.word FROM t3, LATERAL TABLE(TestUDTF(b)) AS T(word, length);";
+        assertSupportedPlans(sql, 1, null);
+    }
+
     private String getStringFromRelNode(RelNode relNode) {
         return FlinkRelOptUtil.toString(
                 relNode, SqlExplainLevel.EXPPLAN_ATTRIBUTES, false, false, true, false, true);
@@ -447,6 +501,16 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
         public long getTableTimestamp(ObjectPath tablePath, long timestamp)
                 throws TableNotExistException, CatalogException {
             return timestamp;
+        }
+    }
+
+    /** The table function for testing. */
+    @FunctionHint(output = @DataTypeHint("ROW<word STRING, length INT>"))
+    public static class TestUDTF extends TableFunction<Row> {
+        public void eval(String str) {
+            for (String s : str.split(" ")) {
+                collect(Row.of(s, s.length()));
+            }
         }
     }
 }
