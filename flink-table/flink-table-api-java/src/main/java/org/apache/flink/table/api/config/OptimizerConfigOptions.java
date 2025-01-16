@@ -161,7 +161,7 @@ public class OptimizerConfigOptions {
                             "A flag to enable or disable the runtime filter. "
                                     + "When it is true, the optimizer will try to inject a runtime filter for eligible join.");
 
-    @Documentation.ExcludeFromDocumentation
+    @Documentation.TableOption(execMode = Documentation.ExecMode.BATCH)
     public static final ConfigOption<Boolean> TABLE_OPTIMIZER_RUNTIME_FILTER_PUSH_DOWN_ENABLED =
             key("table.optimizer.runtime-filter.push-down.enabled")
                     .booleanType()
@@ -169,6 +169,26 @@ public class OptimizerConfigOptions {
                     .withDescription(
                             "A flag to enable or disable the runtime filter push down. "
                                     + "When it is true, the optimizer will try to push down a runtime filter to source when possible.");
+
+    @Documentation.TableOption(execMode = Documentation.ExecMode.BATCH)
+    public static final ConfigOption<Boolean>
+            TABLE_OPTIMIZER_RUNTIME_FILTER_NESTED_LOOP_JOIN_ENABLED =
+                    key("table.optimizer.runtime-filter.nested-loop-join.enabled")
+                            .booleanType()
+                            .defaultValue(false)
+                            .withDescription(
+                                    "A flag to enable or disable the runtime filter for nested loop join. "
+                                            + "When it is true, the optimizer will try to inject a runtime filter for nested loop join.");
+
+    @Documentation.TableOption(execMode = Documentation.ExecMode.BATCH)
+    public static final ConfigOption<Boolean>
+            TABLE_OPTIMIZER_RUNTIME_FILTER_BROADCAST_JOIN_ENABLED =
+                    key("table.optimizer.runtime-filter.broadcast-join.enabled")
+                            .booleanType()
+                            .defaultValue(false)
+                            .withDescription(
+                                    "A flag to enable or disable the runtime filter for broadcast join. "
+                                            + "When it is true, the optimizer will try to inject a runtime filter for broadcast join.");
 
     @Documentation.TableOption(execMode = Documentation.ExecMode.BATCH)
     public static final ConfigOption<AdaptiveBroadcastJoinStrategy>

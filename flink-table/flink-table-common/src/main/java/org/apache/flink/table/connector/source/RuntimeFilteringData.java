@@ -215,6 +215,8 @@ public class RuntimeFilteringData implements Serializable {
                 + serializedData.size()
                 + ", filterType="
                 + filterType
+                + ", rowType="
+                + rowType
                 + '}';
     }
 }
