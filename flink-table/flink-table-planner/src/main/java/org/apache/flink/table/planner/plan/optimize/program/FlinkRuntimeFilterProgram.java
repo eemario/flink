@@ -28,7 +28,9 @@ import org.apache.flink.table.planner.plan.nodes.FlinkConventions;
 import org.apache.flink.table.planner.plan.nodes.physical.batch.BatchPhysicalDynamicFilteringTableSourceScan;
 import org.apache.flink.table.planner.plan.nodes.physical.batch.BatchPhysicalExchange;
 import org.apache.flink.table.planner.plan.nodes.physical.batch.BatchPhysicalGroupAggregateBase;
+import org.apache.flink.table.planner.plan.nodes.physical.batch.BatchPhysicalHashJoin;
 import org.apache.flink.table.planner.plan.nodes.physical.batch.BatchPhysicalNestedLoopJoin;
+import org.apache.flink.table.planner.plan.nodes.physical.batch.BatchPhysicalSortMergeJoin;
 import org.apache.flink.table.planner.plan.nodes.physical.batch.runtimefilter.BatchPhysicalGlobalRuntimeFilterBuilder;
 import org.apache.flink.table.planner.plan.nodes.physical.batch.runtimefilter.BatchPhysicalLocalRuntimeFilterBuilder;
 import org.apache.flink.table.planner.plan.nodes.physical.batch.runtimefilter.BatchPhysicalRuntimeFilter;
@@ -129,7 +131,10 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
         if (!isRuntimeFilterEnabled(root)) {
             return root;
         }
-        LOG.info("Start FlinkRuntimeFilterProgram");
+        LOG.info(
+                "Start FlinkRuntimeFilterProgram with min probe size {} and max build size {}",
+                getMinProbeDataSize(root),
+                getMaxBuildDataSize(root));
 
         // To avoid that one side can be used both as a build side and as a probe side
         checkState(
@@ -173,12 +178,12 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
             return join;
         }
 
-        // remove the check to support nested loop join
         // check supported join implementation
-        //        if (!(join instanceof BatchPhysicalHashJoin)
-        //                && !(join instanceof BatchPhysicalSortMergeJoin)) {
-        //            return join;
-        //        }
+        if (!isRuntimeFilterNestedLoopJoinEnabled(join)
+                && !(join instanceof BatchPhysicalHashJoin)
+                && !(join instanceof BatchPhysicalSortMergeJoin)) {
+            return join;
+        }
 
         boolean leftIsBuild;
         if (canBeProbeSide(join.getLeft())) {
@@ -186,6 +191,7 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
         } else if (canBeProbeSide(join.getRight())) {
             leftIsBuild = true;
         } else {
+            LOG.info("Cannot find the probe side with enough data");
             return join;
         }
 
@@ -201,7 +207,9 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
 
         JoinInfo joinInfo = join.analyzeCondition();
         // only check equi join for nested loop join
-        if (join instanceof BatchPhysicalNestedLoopJoin && !joinInfo.isEqui()) {
+        if (isRuntimeFilterNestedLoopJoinEnabled(join)
+                && join instanceof BatchPhysicalNestedLoopJoin
+                && !joinInfo.isEqui()) {
             return join;
         }
 
@@ -284,7 +292,9 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
         Map<String, List<String>> suitablePushDownFields = new HashMap<>();
         Map<String, List<Integer>> pushDownFieldIndices = new HashMap<>();
         boolean tryPushDown = false;
-        if (isRuntimeFilterPushDownEnabled(probeSide) && probeSide instanceof TableScan) {
+        if (isRuntimeFilterPushDownEnabled(probeSide)
+                && probeSide instanceof TableScan
+                && !(probeSide instanceof BatchPhysicalDynamicFilteringTableSourceScan)) {
             TableSourceTable tableSourceTable =
                     ((TableScan) probeSide).getTable().unwrap(TableSourceTable.class);
             if (tableSourceTable != null) {
@@ -325,8 +335,12 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
                             ((SupportsRuntimeFilterPushDown) tableSource)
                                     .applyRuntimeFiltering(
                                             suitablePushDownFields, pushDownFieldIndices);
+                            LOG.info(
+                                    "Apply runtime filtering for table source {} with fields {} and indices {}",
+                                    tableSource,
+                                    suitablePushDownFields,
+                                    pushDownFieldIndices);
                         }
-                        // TODO do we need to tell the connector what fields are chosen?
                     }
                 } else {
                     LOG.info(
@@ -594,6 +608,7 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
             if (dynamicFilteringIndices.containsAll(probeIndices)) {
                 // do nothing, return current probe side directly. Because the fields have already
                 // filtered by DPP.
+                LOG.info("The fields have been filtered by DPP, no need to inject runtime ");
                 return rel;
             }
         } else {
@@ -612,15 +627,15 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
             // operations, we will not inject runtime filter, because we believe the benefit to be
             // small or even negative
 
-            // supports the case when the probe side is a direct table source
-            // TODO fix UT case and test performance
-            if (rel instanceof TableScan) {
+            // supports the case when the probe side is a direct table source for broadcast join
+            if (rel instanceof TableScan && isRuntimeFilterBroadcastJoinEnabled(rel)) {
                 return createNewProbeWithRuntimeFilter(
                         ignoreExchange(buildSideInfo.buildSide),
-                        ignoreExchange(rel),
+                        rel,
                         buildSideInfo.buildIndices,
                         probeIndices);
             }
+            LOG.info("runtime filter has no benefit for {}", rel);
             return rel;
         }
     }
@@ -730,12 +745,14 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
         long minProbeDataSize = getMinProbeDataSize(probeSide);
         double minFilterRatio = getMinFilterRatio(buildSide);
         LOG.info(
-                "buildSize: {}, probeSize: {}, maxBuildDataSize: {}, minProbeDataSize: {}, minFilterRatio: {}",
+                "buildSize: {}, probeSize: {}, maxBuildDataSize: {}, minProbeDataSize: {}, minFilterRatio: {}. buildSide: {}, probeSide: {}",
                 buildSize,
                 probeSize,
                 maxBuildDataSize,
                 minProbeDataSize,
-                minFilterRatio);
+                minFilterRatio,
+                buildSide.toString(),
+                probeSide.toString());
 
         if (!buildSize.isPresent() || !probeSize.isPresent()) {
             return false;
@@ -745,8 +762,9 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
             return false;
         }
 
-        return computeFilterRatio(buildSide, probeSide, buildIndices, probeIndices)
-                >= minFilterRatio;
+        double filterRatio = computeFilterRatio(buildSide, probeSide, buildIndices, probeIndices);
+        LOG.info("filterRatio: {}", filterRatio);
+        return filterRatio >= minFilterRatio;
     }
 
     private static double computeFilterRatio(
@@ -809,6 +827,18 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
     private static boolean isRuntimeFilterPushDownEnabled(RelNode relNode) {
         return unwrapTableConfig(relNode)
                 .get(OptimizerConfigOptions.TABLE_OPTIMIZER_RUNTIME_FILTER_PUSH_DOWN_ENABLED);
+    }
+
+    private static boolean isRuntimeFilterNestedLoopJoinEnabled(RelNode relNode) {
+        return unwrapTableConfig(relNode)
+                .get(
+                        OptimizerConfigOptions
+                                .TABLE_OPTIMIZER_RUNTIME_FILTER_NESTED_LOOP_JOIN_ENABLED);
+    }
+
+    private static boolean isRuntimeFilterBroadcastJoinEnabled(RelNode relNode) {
+        return unwrapTableConfig(relNode)
+                .get(OptimizerConfigOptions.TABLE_OPTIMIZER_RUNTIME_FILTER_BROADCAST_JOIN_ENABLED);
     }
 
     private static long getMaxBuildDataSize(RelNode relNode) {
