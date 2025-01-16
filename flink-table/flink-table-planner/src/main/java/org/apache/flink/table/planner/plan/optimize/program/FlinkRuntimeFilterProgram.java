@@ -129,7 +129,10 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
         if (!isRuntimeFilterEnabled(root)) {
             return root;
         }
-        LOG.info("Start FlinkRuntimeFilterProgram");
+        LOG.info(
+                "Start FlinkRuntimeFilterProgram with min probe size {} and max build size {}",
+                getMinProbeDataSize(root),
+                getMaxBuildDataSize(root));
 
         // To avoid that one side can be used both as a build side and as a probe side
         checkState(
@@ -186,6 +189,7 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
         } else if (canBeProbeSide(join.getRight())) {
             leftIsBuild = true;
         } else {
+            LOG.info("Cannot find the probe side with enough data");
             return join;
         }
 
@@ -284,7 +288,9 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
         Map<String, List<String>> suitablePushDownFields = new HashMap<>();
         Map<String, List<Integer>> pushDownFieldIndices = new HashMap<>();
         boolean tryPushDown = false;
-        if (isRuntimeFilterPushDownEnabled(probeSide) && probeSide instanceof TableScan) {
+        if (isRuntimeFilterPushDownEnabled(probeSide)
+                && probeSide instanceof TableScan
+                && !(probeSide instanceof BatchPhysicalDynamicFilteringTableSourceScan)) {
             TableSourceTable tableSourceTable =
                     ((TableScan) probeSide).getTable().unwrap(TableSourceTable.class);
             if (tableSourceTable != null) {
@@ -325,8 +331,12 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
                             ((SupportsRuntimeFilterPushDown) tableSource)
                                     .applyRuntimeFiltering(
                                             suitablePushDownFields, pushDownFieldIndices);
+                            LOG.info(
+                                    "Apply runtime filtering for table source {} with fields {} and indices {}",
+                                    tableSource,
+                                    suitablePushDownFields,
+                                    pushDownFieldIndices);
                         }
-                        // TODO do we need to tell the connector what fields are chosen?
                     }
                 } else {
                     LOG.info(
@@ -715,6 +725,7 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
 
     private static boolean canBeProbeSide(RelNode rel) {
         Optional<Double> size = getEstimatedDataSize(rel);
+        LOG.info("getEstimatedDataSize for {}: {}", rel.toString(), size);
         return size.isPresent() && size.get() >= getMinProbeDataSize(rel);
     }
 
