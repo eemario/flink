@@ -18,6 +18,7 @@
 
 package org.apache.flink.table.planner.plan.nodes.physical.batch.runtimefilter;
 
+import org.apache.flink.table.connector.source.RuntimeFilterType;
 import org.apache.flink.table.planner.calcite.FlinkTypeFactory;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNode;
 import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
@@ -35,6 +36,7 @@ import org.apache.calcite.rel.type.RelDataType;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 import static org.apache.flink.table.planner.utils.ShortcutUtils.unwrapTableConfig;
 
@@ -49,6 +51,7 @@ public class BatchPhysicalGlobalRuntimeFilterBuilder extends SingleRel implement
     private final int maxInFilterRowCount;
     private final RowType filterRowType;
     private final String[] buildFieldNames;
+    private final Set<RuntimeFilterType> pushDownFilterTypes;
 
     public BatchPhysicalGlobalRuntimeFilterBuilder(
             RelOptCluster cluster,
@@ -58,13 +61,15 @@ public class BatchPhysicalGlobalRuntimeFilterBuilder extends SingleRel implement
             int estimatedRowCount,
             int maxRowCount,
             int maxInFilterRowCount,
-            RowType filterRowType) {
+            RowType filterRowType,
+            Set<RuntimeFilterType> pushDownFilterTypes) {
         super(cluster, traits, input);
         this.buildFieldNames = buildFieldNames;
         this.estimatedRowCount = estimatedRowCount;
         this.maxRowCount = maxRowCount;
         this.maxInFilterRowCount = maxInFilterRowCount;
         this.filterRowType = filterRowType;
+        this.pushDownFilterTypes = pushDownFilterTypes;
     }
 
     @Override
@@ -77,7 +82,8 @@ public class BatchPhysicalGlobalRuntimeFilterBuilder extends SingleRel implement
                 estimatedRowCount,
                 maxRowCount,
                 maxInFilterRowCount,
-                filterRowType);
+                filterRowType,
+                pushDownFilterTypes);
     }
 
     @Override
@@ -91,7 +97,8 @@ public class BatchPhysicalGlobalRuntimeFilterBuilder extends SingleRel implement
                 .item("select", String.join(", ", buildFieldNames))
                 .item("estimatedRowCount", estimatedRowCount)
                 .item("maxRowCount", maxRowCount)
-                .item("maxInFilterRowCount", maxInFilterRowCount);
+                .item("maxInFilterRowCount", maxInFilterRowCount)
+                .item("pushDownFilterTypes", pushDownFilterTypes);
     }
 
     @Override
@@ -109,6 +116,7 @@ public class BatchPhysicalGlobalRuntimeFilterBuilder extends SingleRel implement
                 estimatedRowCount,
                 maxRowCount,
                 maxInFilterRowCount,
-                filterRowType);
+                filterRowType,
+                pushDownFilterTypes);
     }
 }

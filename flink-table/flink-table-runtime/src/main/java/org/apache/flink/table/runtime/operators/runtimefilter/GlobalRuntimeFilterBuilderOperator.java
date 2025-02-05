@@ -26,6 +26,9 @@ import org.apache.flink.streaming.api.operators.BoundedOneInput;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.api.operators.StreamOperatorParameters;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
+import org.apache.flink.table.connector.source.BloomFilterRuntimeFilterType;
+import org.apache.flink.table.connector.source.InFilterRuntimeFilterType;
+import org.apache.flink.table.connector.source.RuntimeFilterType;
 import org.apache.flink.table.connector.source.RuntimeFilteringData;
 import org.apache.flink.table.connector.source.RuntimeFilteringEvent;
 import org.apache.flink.table.data.RowData;
@@ -47,6 +50,7 @@ import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 import static org.apache.flink.table.runtime.operators.runtimefilter.util.RuntimeFilterUtils.OVER_MAX_ROW_COUNT;
 import static org.apache.flink.util.Preconditions.checkArgument;
@@ -73,6 +77,8 @@ public class GlobalRuntimeFilterBuilderOperator extends TableStreamOperator<RowD
 
     private final OperatorEventGateway operatorEventGateway;
 
+    private final Set<RuntimeFilterType> pushDownFilterTypes;
+
     private transient RuntimeFilter filter;
     private transient Collector<RowData> collector;
     private transient int globalRowCount;
@@ -85,7 +91,8 @@ public class GlobalRuntimeFilterBuilderOperator extends TableStreamOperator<RowD
             int maxRowCount,
             int maxInFilterRowCount,
             RowType filterRowType,
-            OperatorEventGateway operatorEventGateway) {
+            OperatorEventGateway operatorEventGateway,
+            Set<RuntimeFilterType> pushDownFilterTypes) {
         super(parameters);
         checkArgument(maxRowCount > 0);
         checkArgument(maxRowCount >= maxInFilterRowCount);
@@ -94,6 +101,7 @@ public class GlobalRuntimeFilterBuilderOperator extends TableStreamOperator<RowD
         this.maxInFilterRowCount = maxInFilterRowCount;
         this.filterRowType = filterRowType;
         this.operatorEventGateway = operatorEventGateway;
+        this.pushDownFilterTypes = pushDownFilterTypes;
     }
 
     @Override
@@ -151,27 +159,42 @@ public class GlobalRuntimeFilterBuilderOperator extends TableStreamOperator<RowD
         final RuntimeFilteringData runtimeFilteringData;
         if (globalRowCount != OVER_MAX_ROW_COUNT) {
             if (filter instanceof InFilterRuntimeFilter) {
-                InFilterRuntimeFilter inFilter = (InFilterRuntimeFilter) filter;
-                List<byte[]> serializedData = new ArrayList<>();
-                for (RowData rowData : inFilter.getInFilter()) {
-                    try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-                        DataOutputViewStreamWrapper wrapper = new DataOutputViewStreamWrapper(baos);
-                        serializer.serialize(rowData, wrapper);
-                        serializedData.add(baos.toByteArray());
+                RuntimeFilterType filterType = new InFilterRuntimeFilterType();
+                if (pushDownFilterTypes.contains(filterType)) {
+                    InFilterRuntimeFilter inFilter = (InFilterRuntimeFilter) filter;
+                    List<byte[]> serializedData = new ArrayList<>();
+                    for (RowData rowData : inFilter.getInFilter()) {
+                        try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+                            DataOutputViewStreamWrapper wrapper =
+                                    new DataOutputViewStreamWrapper(baos);
+                            serializer.serialize(rowData, wrapper);
+                            serializedData.add(baos.toByteArray());
+                        }
                     }
+                    runtimeFilteringData =
+                            new RuntimeFilteringData(
+                                    typeInfo, filterRowType, serializedData, true, filterType);
+                } else {
+                    LOG.info("The built filter is in filter but does not support push down");
+                    runtimeFilteringData =
+                            new RuntimeFilteringData(
+                                    typeInfo,
+                                    filterRowType,
+                                    Collections.emptyList(),
+                                    false,
+                                    filterType);
                 }
-                runtimeFilteringData =
-                        new RuntimeFilteringData(
-                                typeInfo, filterRowType, serializedData, true, "bitmap");
+
             } else {
                 // TODO support bloom filter
+                RuntimeFilterType filterType = new BloomFilterRuntimeFilterType();
                 runtimeFilteringData =
                         new RuntimeFilteringData(
                                 typeInfo,
                                 filterRowType,
                                 Collections.emptyList(),
                                 false,
-                                "bloom-filter");
+                                filterType);
             }
         } else {
             LOG.info("The built filter is over max row count");

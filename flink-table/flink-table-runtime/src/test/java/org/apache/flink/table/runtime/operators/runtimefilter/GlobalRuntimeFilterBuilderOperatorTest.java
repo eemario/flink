@@ -24,6 +24,7 @@ import org.apache.flink.runtime.operators.coordination.OperatorEvent;
 import org.apache.flink.runtime.source.event.SourceEventWrapper;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.streaming.util.OneInputStreamOperatorTestHarness;
+import org.apache.flink.table.connector.source.InFilterRuntimeFilterType;
 import org.apache.flink.table.connector.source.RuntimeFilteringData;
 import org.apache.flink.table.connector.source.RuntimeFilteringEvent;
 import org.apache.flink.table.data.GenericRowData;
@@ -40,6 +41,7 @@ import org.apache.flink.table.types.logical.VarCharType;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import static org.apache.flink.table.runtime.operators.runtimefilter.util.RuntimeFilterUtils.OVER_MAX_ROW_COUNT;
@@ -461,7 +463,8 @@ class GlobalRuntimeFilterBuilderOperatorTest {
                         maxRowCount,
                         maxInFilterRowCount,
                         filterRowType,
-                        gateway);
+                        gateway,
+                        Collections.singleton(new InFilterRuntimeFilterType()));
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness =
                 new OneInputStreamOperatorTestHarness<>(operator);
         testHarness.setup();
