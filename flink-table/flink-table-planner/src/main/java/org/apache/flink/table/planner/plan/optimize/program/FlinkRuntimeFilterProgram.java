@@ -22,6 +22,7 @@ import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.table.api.config.OptimizerConfigOptions;
 import org.apache.flink.table.connector.source.DynamicTableSource;
 import org.apache.flink.table.connector.source.RuntimeFilterPushDownFieldInfo;
+import org.apache.flink.table.connector.source.RuntimeFilterType;
 import org.apache.flink.table.connector.source.abilities.SupportsRuntimeFilterPushDown;
 import org.apache.flink.table.planner.calcite.FlinkTypeFactory;
 import org.apache.flink.table.planner.plan.nodes.FlinkConventions;
@@ -289,14 +290,13 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
                 RowTypeUtils.projectRowType(buildRowType, buildIndices.toIntArray());
 
         // try to push down the runtime filter
-        Map<String, List<String>> suitablePushDownFields = new HashMap<>();
-        Map<String, List<Integer>> pushDownFieldIndices = new HashMap<>();
+        Map<RuntimeFilterType, List<String>> pushDownFieldNames = new HashMap<>();
+        Map<RuntimeFilterType, List<Integer>> pushDownFieldIndices = new HashMap<>();
         boolean tryPushDown = false;
         if (isRuntimeFilterPushDownEnabled(probeSide)
                 && probeSide instanceof TableScan
                 && !(probeSide instanceof BatchPhysicalDynamicFilteringTableSourceScan)) {
-            TableSourceTable tableSourceTable =
-                    ((TableScan) probeSide).getTable().unwrap(TableSourceTable.class);
+            TableSourceTable tableSourceTable = probeSide.getTable().unwrap(TableSourceTable.class);
             if (tableSourceTable != null) {
                 DynamicTableSource tableSource = tableSourceTable.tableSource();
                 if (tableSource instanceof SupportsRuntimeFilterPushDown) {
@@ -323,22 +323,22 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
                                                 acceptedPushDownField.getFieldType(),
                                                 k -> new ArrayList<>())
                                         .add(index);
-                                suitablePushDownFields
+                                pushDownFieldNames
                                         .computeIfAbsent(
                                                 acceptedPushDownField.getFieldType(),
                                                 k -> new ArrayList<>())
                                         .add(acceptedPushDownField.getFieldName());
                             }
                         }
-                        if (!suitablePushDownFields.isEmpty()) {
+                        if (!pushDownFieldNames.isEmpty()) {
                             tryPushDown = true;
                             ((SupportsRuntimeFilterPushDown) tableSource)
                                     .applyRuntimeFiltering(
-                                            suitablePushDownFields, pushDownFieldIndices);
+                                            pushDownFieldNames, pushDownFieldIndices);
                             LOG.info(
-                                    "Apply runtime filtering for table source {} with fields {} and indices {}",
+                                    "Apply runtime filtering for table source {} with field names {} and indices {}",
                                     tableSource,
-                                    suitablePushDownFields,
+                                    pushDownFieldNames,
                                     pushDownFieldIndices);
                         }
                     }
@@ -349,8 +349,8 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
                 }
             }
             LOG.info(
-                    "Suitable push down fields: {}, indices: {}",
-                    suitablePushDownFields,
+                    "Suitable push down field names: {}, indices: {}",
+                    pushDownFieldNames,
                     pushDownFieldIndices);
         } else {
             LOG.info(
@@ -378,7 +378,8 @@ public class FlinkRuntimeFilterProgram implements FlinkOptimizeProgram<BatchOpti
                         buildRowCount,
                         maxRowCount,
                         maxInFilterRowCount,
-                        filterRowType);
+                        filterRowType,
+                        new HashSet<>(pushDownFieldNames.keySet()));
         RelNode runtimeFilter =
                 new BatchPhysicalRuntimeFilter(
                         probeSide.getCluster(),

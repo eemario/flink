@@ -26,6 +26,7 @@ import org.apache.flink.streaming.api.operators.AbstractStreamOperatorFactory;
 import org.apache.flink.streaming.api.operators.CoordinatedOperatorFactory;
 import org.apache.flink.streaming.api.operators.StreamOperator;
 import org.apache.flink.streaming.api.operators.StreamOperatorParameters;
+import org.apache.flink.table.connector.source.RuntimeFilterType;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.RowType;
 
@@ -44,16 +45,19 @@ public class GlobalRuntimeFilterBuilderOperatorFactory
     private final int maxRowCount;
     private final int maxInFilterRowCount;
     private final RowType filterRowType;
+    private final Set<RuntimeFilterType> pushDownFilterTypes;
 
     public GlobalRuntimeFilterBuilderOperatorFactory(
             int estimatedRowCount,
             int maxRowCount,
             int maxInFilterRowCount,
-            RowType filterRowType) {
+            RowType filterRowType,
+            Set<RuntimeFilterType> pushDownFilterTypes) {
         this.estimatedRowCount = estimatedRowCount;
         this.maxRowCount = maxRowCount;
         this.maxInFilterRowCount = maxInFilterRowCount;
         this.filterRowType = filterRowType;
+        this.pushDownFilterTypes = pushDownFilterTypes;
     }
 
     @Override
@@ -71,7 +75,8 @@ public class GlobalRuntimeFilterBuilderOperatorFactory
                         maxRowCount,
                         maxInFilterRowCount,
                         filterRowType,
-                        operatorEventGateway);
+                        operatorEventGateway,
+                        pushDownFilterTypes);
 
         @SuppressWarnings("unchecked")
         final T castedOperator = (T) operator;

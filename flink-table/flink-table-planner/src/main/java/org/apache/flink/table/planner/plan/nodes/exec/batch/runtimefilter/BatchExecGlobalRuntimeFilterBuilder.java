@@ -21,6 +21,7 @@ package org.apache.flink.table.planner.plan.nodes.exec.batch.runtimefilter;
 import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.streaming.api.operators.StreamOperatorFactory;
+import org.apache.flink.table.connector.source.RuntimeFilterType;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.planner.delegation.PlannerBase;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecEdge;
@@ -37,6 +38,7 @@ import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
 
 import java.util.List;
+import java.util.Set;
 
 /** Batch {@link ExecNode} for global runtime filter builder. */
 public class BatchExecGlobalRuntimeFilterBuilder extends ExecNodeBase<RowData>
@@ -46,6 +48,7 @@ public class BatchExecGlobalRuntimeFilterBuilder extends ExecNodeBase<RowData>
     private final int maxRowCount;
     private final int maxInFilterRowCount;
     private final RowType filterRowType;
+    private final Set<RuntimeFilterType> pushDownFilterTypes;
 
     public BatchExecGlobalRuntimeFilterBuilder(
             ReadableConfig tableConfig,
@@ -55,7 +58,8 @@ public class BatchExecGlobalRuntimeFilterBuilder extends ExecNodeBase<RowData>
             int estimatedRowCount,
             int maxRowCount,
             int maxInFilterRowCount,
-            RowType filterRowType) {
+            RowType filterRowType,
+            Set<RuntimeFilterType> pushDownFilterTypes) {
         super(
                 ExecNodeContext.newNodeId(),
                 ExecNodeContext.newContext(BatchExecLocalRuntimeFilterBuilder.class),
@@ -68,6 +72,7 @@ public class BatchExecGlobalRuntimeFilterBuilder extends ExecNodeBase<RowData>
         this.maxRowCount = maxRowCount;
         this.maxInFilterRowCount = maxInFilterRowCount;
         this.filterRowType = filterRowType;
+        this.pushDownFilterTypes = pushDownFilterTypes;
     }
 
     @Override
@@ -80,7 +85,11 @@ public class BatchExecGlobalRuntimeFilterBuilder extends ExecNodeBase<RowData>
 
         StreamOperatorFactory<RowData> factory =
                 new GlobalRuntimeFilterBuilderOperatorFactory(
-                        estimatedRowCount, maxRowCount, maxInFilterRowCount, filterRowType);
+                        estimatedRowCount,
+                        maxRowCount,
+                        maxInFilterRowCount,
+                        filterRowType,
+                        pushDownFilterTypes);
 
         return ExecNodeUtil.createOneInputTransformation(
                 inputTransform,
