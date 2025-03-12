@@ -17,12 +17,11 @@
  */
 package org.apache.flink.table.planner.plan.optimize.program
 
-/** A FlinkOptimizeContext allows to obtain batch table environment information when optimizing. */
-trait BatchOptimizeContext extends FlinkOptimizeContext {
+trait IncrementalOptimizeContext extends BatchOptimizeContext {
 
   /**
    * Returns true if the root is required to send UPDATE_BEFORE message with UPDATE_AFTER message
    * together for update changes.
    */
-  def isUpdateBeforeRequired: Boolean = false
+  def isUpdateBeforeRequired: Boolean
 }

@@ -91,7 +91,7 @@ LogicalSink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(B
 			<![CDATA[
 Sink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a)]
 +- Calc(select=[a]), rowType=[RecordType(BIGINT a)]
-   +- HashJoin(joinType=[InnerJoin], where=[=(a, a0)], select=[a, a0], build=[right]), rowType=[RecordType(BIGINT a, BIGINT a0)]
+   +- HashJoin(joinType=[InnerJoin], where=[=(a, a0)], select=[a, a0], build=[left]), rowType=[RecordType(BIGINT a, BIGINT a0)]
       :- Exchange(distribution=[hash[a]]), rowType=[RecordType(BIGINT a)]
       :  +- TableSourceScan(table=[[testCatalog, default, t1]], fields=[a], hints=[[[OPTIONS options:{scan-mode=FULL_NEW}]]]), rowType=[RecordType(BIGINT a)]
       +- Exchange(distribution=[hash[a]]), rowType=[RecordType(BIGINT a)]
@@ -102,7 +102,7 @@ Sink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a
 			<![CDATA[
 Sink(table=[testCatalog.default.sink], fields=[a])
 +- Calc(select=[a])
-   +- HashJoin(joinType=[InnerJoin], where=[(a = a0)], select=[a, a0], build=[right])
+   +- HashJoin(joinType=[InnerJoin], where=[(a = a0)], select=[a, a0], build=[left])
       :- Exchange(distribution=[hash[a]])
       :  +- TableSourceScan(table=[[testCatalog, default, t1]], fields=[a], hints=[[[OPTIONS options:{scan-mode=FULL_NEW}]]])
       +- Exchange(distribution=[hash[a]])
@@ -266,7 +266,7 @@ Sink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a
 +- Calc(select=[a]), rowType=[RecordType(BIGINT a)]
    +- HashJoin(joinType=[InnerJoin], where=[=(a, a0)], select=[a, a0], build=[left]), rowType=[RecordType(BIGINT a, BIGINT a0)]
       :- Calc(select=[a]), rowType=[RecordType(BIGINT a)]
-      :  +- HashJoin(joinType=[InnerJoin], where=[=(a, a0)], select=[a, a0], build=[right]), rowType=[RecordType(BIGINT a, BIGINT a0)]
+      :  +- HashJoin(joinType=[InnerJoin], where=[=(a, a0)], select=[a, a0], build=[left]), rowType=[RecordType(BIGINT a, BIGINT a0)]
       :     :- Exchange(distribution=[hash[a]]), rowType=[RecordType(BIGINT a)]
       :     :  +- TableSourceScan(table=[[testCatalog, default, t1]], fields=[a], hints=[[[OPTIONS options:{scan-mode=FULL_NEW}]]]), rowType=[RecordType(BIGINT a)]
       :     +- Exchange(distribution=[hash[a]]), rowType=[RecordType(BIGINT a)]
@@ -279,7 +279,7 @@ Sink(table=[testCatalog.default.sink], fields=[a]), rowType=[RecordType(BIGINT a
 			<![CDATA[
 Sink(table=[testCatalog.default.sink], fields=[a])
 +- Calc(select=[a])
-   +- MultipleInput(readOrder=[2,1,0], members=[\nHashJoin(joinType=[InnerJoin], where=[(a = a0)], select=[a, a0], build=[left])\n:- Calc(select=[a])\n:  +- HashJoin(joinType=[InnerJoin], where=[(a = a0)], select=[a, a0], build=[right])\n:     :- [#2] Exchange(distribution=[hash[a]])\n:     +- [#3] Exchange(distribution=[hash[a]])\n+- [#1] Exchange(distribution=[hash[a]])\n])
+   +- MultipleInput(readOrder=[2,0,1], members=[\nHashJoin(joinType=[InnerJoin], where=[(a = a0)], select=[a, a0], build=[left])\n:- Calc(select=[a])\n:  +- HashJoin(joinType=[InnerJoin], where=[(a = a0)], select=[a, a0], build=[left])\n:     :- [#2] Exchange(distribution=[hash[a]])\n:     +- [#3] Exchange(distribution=[hash[a]])\n+- [#1] Exchange(distribution=[hash[a]])\n])
       :- Exchange(distribution=[hash[a]])
       :  +- TableSourceScan(table=[[testCatalog, default, t3]], fields=[a], hints=[[[OPTIONS options:{scan-mode=DELTA}]]])
       :- Exchange(distribution=[hash[a]])
@@ -459,6 +459,43 @@ Sink(table=[testCatalog.default.exploded_sink], fields=[a, word])
 +- Calc(select=[a, word])
    +- Correlate(invocation=[TestUDTF($cor0.b)], correlate=[table(TestUDTF($cor0.b))], select=[a,b,word,length], rowType=[RecordType(BIGINT a, VARCHAR(2147483647) b, VARCHAR(2147483647) word, INTEGER length)], joinType=[INNER])
       +- TableSourceScan(table=[[testCatalog, default, t3]], fields=[a, b], hints=[[[OPTIONS options:{scan-mode=DELTA}]]])
+]]>
+		</Resource>
+	</TestCase>
+	<TestCase name="testIncrementalProcessingShuttleWithAggregate">
+		<Resource name="origin">
+			<![CDATA[LogicalSink(table=[testCatalog.default.aggSink], fields=[a, b]), rowType=[RecordType(BIGINT a, BIGINT b)]
++- LogicalProject(a=[1:BIGINT], b=[$0]), rowType=[RecordType(BIGINT a, BIGINT b)]
+   +- LogicalAggregate(group=[{}], EXPR$1=[TestUDAF($0, $0)]), rowType=[RecordType(BIGINT EXPR$1)]
+      +- LogicalTableScan(table=[[testCatalog, default, t1]]), rowType=[RecordType(BIGINT a)]
+]]>
+		</Resource>
+		<Resource name="ast">
+			<![CDATA[
+LogicalSink(table=[testCatalog.default.aggSink], fields=[a, b]), rowType=[RecordType(BIGINT a, BIGINT b)]
++- LogicalProject(a=[1:BIGINT], b=[$0]), rowType=[RecordType(BIGINT a, BIGINT b)]
+   +- LogicalAggregate(group=[{}], EXPR$1=[TestUDAF($0, $0)]), rowType=[RecordType(BIGINT EXPR$1)]
+      +- LogicalTableScan(table=[[testCatalog, default, t1]], hints=[[[OPTIONS inheritPath:[] options:{scan-mode=DELTA}]]]), rowType=[RecordType(BIGINT a)]
+]]>
+		</Resource>
+		<Resource name="optimized rel plan">
+			<![CDATA[
+Sink(table=[testCatalog.default.aggSink], fields=[a, b]), rowType=[RecordType(BIGINT a, BIGINT b)]
++- Calc(select=[1 AS a, EXPR$1 AS b]), rowType=[RecordType(BIGINT a, BIGINT b)]
+   +- GlobalGroupAggregate(select=[TestUDAF(testudaf$0) AS EXPR$1], changelogMode=[I,UB,UA]), rowType=[RecordType(BIGINT EXPR$1)]
+      +- Exchange(distribution=[single]), rowType=[RecordType(*org.apache.flink.table.planner.plan.utils.JavaUserDefinedAggFunctions$WeightedAvgAccum<`count` INT NOT NULL, `sum` BIGINT NOT NULL>* testudaf$0)]
+         +- LocalGroupAggregate(select=[TestUDAF(a, a) AS testudaf$0], changelogMode=[I]), rowType=[RecordType(*org.apache.flink.table.planner.plan.utils.JavaUserDefinedAggFunctions$WeightedAvgAccum<`count` INT NOT NULL, `sum` BIGINT NOT NULL>* testudaf$0)]
+            +- TableSourceScan(table=[[testCatalog, default, t1]], fields=[a], hints=[[[OPTIONS options:{scan-mode=DELTA}]]]), rowType=[RecordType(BIGINT a)]
+]]>
+		</Resource>
+		<Resource name="optimized exec plan">
+			<![CDATA[
+Sink(table=[testCatalog.default.aggSink], fields=[a, b])
++- Calc(select=[1 AS a, EXPR$1 AS b])
+   +- GlobalGroupAggregate(select=[TestUDAF(testudaf$0) AS EXPR$1])
+      +- Exchange(distribution=[single])
+         +- LocalGroupAggregate(select=[TestUDAF(a, a) AS testudaf$0])
+            +- TableSourceScan(table=[[testCatalog, default, t1]], fields=[a], hints=[[[OPTIONS options:{scan-mode=DELTA}]]])
 ]]>
 		</Resource>
 	</TestCase>

@@ -2548,7 +2548,13 @@ public class StreamExecutionEnvironment implements AutoCloseable {
      */
     @Internal
     public StreamGraph generateStreamGraph(List<Transformation<?>> transformations) {
-        return getStreamGraphGenerator(transformations).generate();
+        return generateStreamGraph(transformations, false);
+    }
+
+    @Internal
+    public StreamGraph generateStreamGraph(
+            List<Transformation<?>> transformations, boolean incremental) {
+        return getStreamGraphGenerator(transformations).generate(incremental);
     }
 
     private StreamGraphGenerator getStreamGraphGenerator(List<Transformation<?>> transformations) {

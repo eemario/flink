@@ -18,6 +18,7 @@
 package org.apache.flink.table.planner.plan.nodes
 
 import org.apache.flink.table.planner.plan.nodes.logical.FlinkLogicalRel
+import org.apache.flink.table.planner.plan.nodes.physical.FlinkPhysicalRel
 import org.apache.flink.table.planner.plan.nodes.physical.batch.BatchPhysicalRel
 import org.apache.flink.table.planner.plan.nodes.physical.stream.StreamPhysicalRel
 
@@ -50,5 +51,6 @@ class FlinkConvention(name: String, relClass: Class[_ <: RelNode])
 object FlinkConventions {
   val LOGICAL = new Convention.Impl("LOGICAL", classOf[FlinkLogicalRel])
   val STREAM_PHYSICAL = new FlinkConvention("STREAM_PHYSICAL", classOf[StreamPhysicalRel])
-  val BATCH_PHYSICAL = new FlinkConvention("BATCH_PHYSICAL", classOf[BatchPhysicalRel])
+  val BATCH_PHYSICAL =
+    new FlinkConvention("BATCH_PHYSICAL", classOf[FlinkPhysicalRel]) // hack for incremental
 }

@@ -41,6 +41,8 @@ import org.apache.flink.table.runtime.generated.GeneratedAggsHandleFunction;
 import org.apache.flink.table.runtime.keyselector.RowDataKeySelector;
 import org.apache.flink.table.runtime.operators.aggregate.MiniBatchLocalGroupAggFunction;
 import org.apache.flink.table.runtime.operators.bundle.MapBundleOperator;
+import org.apache.flink.table.runtime.operators.bundle.trigger.BundleTrigger;
+import org.apache.flink.table.runtime.operators.bundle.trigger.NeverTrigger;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.types.logical.RowType;
 
@@ -171,9 +173,13 @@ public class StreamExecLocalGroupAggregate extends StreamExecAggregateBase {
                         grouping,
                         (InternalTypeInfo<RowData>) inputTransform.getOutputType());
 
+        final boolean isMiniBatchEnabled = MinibatchUtil.isMiniBatchEnabled(config);
+        BundleTrigger<RowData> trigger =
+                isMiniBatchEnabled
+                        ? MinibatchUtil.createMiniBatchTrigger(config)
+                        : new NeverTrigger<>();
         final MapBundleOperator<RowData, RowData, RowData, RowData> operator =
-                new MapBundleOperator<>(
-                        aggFunction, MinibatchUtil.createMiniBatchTrigger(config), selector);
+                new MapBundleOperator<>(aggFunction, trigger, selector);
 
         return ExecNodeUtil.createOneInputTransformation(
                 inputTransform,

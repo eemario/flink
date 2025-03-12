@@ -23,7 +23,6 @@ import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.api.transformations.OneInputTransformation;
-import org.apache.flink.table.api.TableException;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.planner.codegen.CodeGeneratorContext;
 import org.apache.flink.table.planner.codegen.EqualiserCodeGenerator;
@@ -47,6 +46,7 @@ import org.apache.flink.table.runtime.generated.GeneratedRecordEqualiser;
 import org.apache.flink.table.runtime.keyselector.RowDataKeySelector;
 import org.apache.flink.table.runtime.operators.aggregate.MiniBatchGlobalGroupAggFunction;
 import org.apache.flink.table.runtime.operators.bundle.KeyedMapBundleOperator;
+import org.apache.flink.table.runtime.operators.bundle.trigger.NeverTrigger;
 import org.apache.flink.table.runtime.types.LogicalTypeDataTypeConverter;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.types.DataType;
@@ -261,22 +261,22 @@ public class StreamExecGlobalGroupAggregate extends StreamExecAggregateBase {
 
         final OneInputStreamOperator<RowData, RowData> operator;
         final boolean isMiniBatchEnabled = MinibatchUtil.isMiniBatchEnabled(config);
+        MiniBatchGlobalGroupAggFunction aggFunction =
+                new MiniBatchGlobalGroupAggFunction(
+                        localAggsHandler,
+                        globalAggsHandler,
+                        recordEqualiser,
+                        globalAccTypes,
+                        indexOfCountStar,
+                        generateUpdateBefore,
+                        stateRetentionTime);
         if (isMiniBatchEnabled) {
-            MiniBatchGlobalGroupAggFunction aggFunction =
-                    new MiniBatchGlobalGroupAggFunction(
-                            localAggsHandler,
-                            globalAggsHandler,
-                            recordEqualiser,
-                            globalAccTypes,
-                            indexOfCountStar,
-                            generateUpdateBefore,
-                            stateRetentionTime);
-
             operator =
                     new KeyedMapBundleOperator<>(
                             aggFunction, MinibatchUtil.createMiniBatchTrigger(config));
         } else {
-            throw new TableException("Local-Global optimization is only worked in miniBatch mode");
+            operator = new KeyedMapBundleOperator<>(aggFunction, new NeverTrigger<>());
+            LOG.info("Local-Global aggregate optimization using NeverTrigger");
         }
 
         // partitioned aggregation

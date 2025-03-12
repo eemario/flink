@@ -24,7 +24,9 @@ import org.apache.flink.runtime.incremental.IncrementalBatchCheckpointStore;
 import org.apache.flink.streaming.api.functions.source.FromElementsFunction;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 import org.apache.flink.table.api.DataTypes;
+import org.apache.flink.table.api.EnvironmentSettings;
 import org.apache.flink.table.api.Schema;
+import org.apache.flink.table.api.TableConfig;
 import org.apache.flink.table.api.TableDescriptor;
 import org.apache.flink.table.api.TableEnvironment;
 import org.apache.flink.table.catalog.Catalog;
@@ -41,7 +43,9 @@ import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.data.StringData;
 import org.apache.flink.table.planner.factories.TableFactoryHarness;
 import org.apache.flink.table.planner.factories.TestValuesTableFactory;
+import org.apache.flink.table.planner.plan.utils.JavaUserDefinedAggFunctions;
 import org.apache.flink.table.planner.runtime.utils.BatchTestBase;
+import org.apache.flink.table.planner.utils.TestingTableEnvironment;
 import org.apache.flink.types.Row;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -55,7 +59,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
-import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /** IT test for incremental processing. */
 public class IncrementalProcessingITCase extends BatchTestBase {
@@ -74,16 +78,19 @@ public class IncrementalProcessingITCase extends BatchTestBase {
     public void before() throws Exception {
         super.before();
         basePath = createTempFolder().getPath();
-        tEnv = tEnv();
+        tEnv =
+                TestingTableEnvironment.create(
+                        EnvironmentSettings.newInstance().inBatchMode().build(),
+                        null,
+                        TableConfig.getDefault()
+                                .set(
+                                        BatchIncrementalExecutionOptions.INCREMENTAL_EXECUTION_MODE,
+                                        BatchIncrementalExecutionOptions.IncrementalExecutionMode
+                                                .AUTO));
         catalog = new MockCatalog("default", "default");
         tEnv.registerCatalog("testCatalog", catalog);
         tEnv.executeSql("USE CATALOG testCatalog");
 
-        tEnv.getConfig()
-                .getConfiguration()
-                .set(
-                        BatchIncrementalExecutionOptions.INCREMENTAL_EXECUTION_MODE,
-                        BatchIncrementalExecutionOptions.IncrementalExecutionMode.AUTO);
         tEnv.getConfig()
                 .getConfiguration()
                 .set(BatchIncrementalExecutionOptions.INCREMENTAL_CHECKPOINTS_DIRECTORY, basePath);
@@ -122,6 +129,59 @@ public class IncrementalProcessingITCase extends BatchTestBase {
                                 + " 'enable-overwrite' = 'true'\n"
                                 + ")",
                         basePath));
+    }
+
+    @Test
+    public void testIncrementalProcessingWithAggregate() throws Exception {
+        tEnv.createTemporarySystemFunction(
+                "TestUDAF", JavaUserDefinedAggFunctions.WeightedAvgWithMerge.class);
+        tEnv.executeSql(
+                String.format(
+                        "CREATE TEMPORARY TABLE aggSink (\n"
+                                + "  a INT,\n"
+                                + "  z BIGINT\n"
+                                + ") WITH (\n"
+                                + " 'connector' = 'values',\n"
+                                + " 'bounded' = 'true',\n"
+                                + " 'enable-overwrite' = 'true',\n"
+                                + " 'sink-insert-only' = 'false'"
+                                + ")",
+                        basePath));
+
+        String insertSql = "INSERT OVERWRITE aggSink SELECT x, TestUDAF(z, z) FROM t1 GROUP BY x;";
+
+        List<RowData> rowData1 =
+                Arrays.asList(
+                        GenericRowData.of(1, StringData.fromString("1"), 1),
+                        GenericRowData.of(2, StringData.fromString("2"), 2),
+                        GenericRowData.of(1, StringData.fromString("1"), 2));
+        source1.insertRowData(rowData1);
+
+        tEnv.executeSql(insertSql).await();
+
+        assertThat(TestValuesTableFactory.getResults("aggSink"))
+                .containsExactlyInAnyOrder(Row.of(1, 1L), Row.of(2, 2L));
+
+        IncrementalBatchCheckpointStore store =
+                new FileSystemIncrementalBatchCheckpointStore(basePath);
+        assertThat(store.getLatestSourceOffsets().getOffsets().size()).isEqualTo(1);
+        assertThat(store.getHistory().getRetainedHistoryRecords().size()).isEqualTo(1);
+
+        TestValuesTableFactory.clearAllData();
+        List<RowData> rowData3 =
+                Arrays.asList(
+                        GenericRowData.of(3, StringData.fromString("3"), 1),
+                        GenericRowData.of(3, StringData.fromString("3"), 2));
+        source1.insertRowData(rowData3);
+        assertThat(source1.getInsertedRowData().size()).isEqualTo(2);
+
+        tEnv.executeSql(insertSql).await();
+
+        assertThat(TestValuesTableFactory.getResults("aggSink"))
+                .containsExactlyInAnyOrder(Row.of(3, 1L));
+
+        assertThat(store.getLatestSourceOffsets().getOffsets().size()).isEqualTo(1);
+        assertThat(store.getHistory().getRetainedHistoryRecords().size()).isEqualTo(2);
     }
 
     @Test

@@ -270,11 +270,15 @@ public class StreamGraphGenerator {
     }
 
     public StreamGraph generate() {
+        return generate(false);
+    }
+
+    public StreamGraph generate(boolean incremental) {
         streamGraph =
                 new StreamGraph(
                         configuration, executionConfig, checkpointConfig, savepointRestoreSettings);
         shouldExecuteInBatchMode = shouldExecuteInBatchMode();
-        configureStreamGraph(streamGraph);
+        configureStreamGraph(streamGraph, incremental);
 
         alreadyTransformed = new IdentityHashMap<>();
 
@@ -319,7 +323,7 @@ public class StreamGraphGenerator {
         graph.setDynamic(dynamic);
     }
 
-    private void configureStreamGraph(final StreamGraph graph) {
+    private void configureStreamGraph(final StreamGraph graph, boolean incremental) {
         checkNotNull(graph);
 
         graph.setTimeCharacteristic(timeCharacteristic);
@@ -333,14 +337,19 @@ public class StreamGraphGenerator {
         setDynamic(graph);
 
         if (shouldExecuteInBatchMode) {
-            configureStreamGraphBatch(graph);
+            configureStreamGraphBatch(graph, incremental);
             configuration.set(ExecutionOptions.BUFFER_TIMEOUT_ENABLED, false);
         } else {
             configureStreamGraphStreaming(graph);
         }
     }
 
-    private void configureStreamGraphBatch(final StreamGraph graph) {
+    private void configureStreamGraphBatch(final StreamGraph graph, boolean incremental) {
+        if (incremental) {
+            configureStreamGraphIncremental(graph);
+            return;
+        }
+
         graph.setJobType(JobType.BATCH);
         graph.setJobName(deriveJobName(DEFAULT_BATCH_JOB_NAME));
 
@@ -351,6 +360,18 @@ public class StreamGraphGenerator {
         }
         setBatchStateBackendAndTimerService(graph);
 
+        graph.setGlobalStreamExchangeMode(deriveGlobalStreamExchangeModeBatch());
+        graph.setAllVerticesInSameSlotSharingGroupByDefault(false);
+    }
+
+    private void configureStreamGraphIncremental(final StreamGraph graph) {
+        graph.setJobType(JobType.BATCH);
+        graph.setJobName(deriveJobName(DEFAULT_BATCH_JOB_NAME));
+
+        configuration.set(ExecutionOptions.USE_BATCH_STATE_BACKEND, false);
+        configuration.set(ExecutionOptions.SORT_INPUTS, false);
+        graph.setStateBackend(stateBackend);
+        graph.setCheckpointStorage(checkpointStorage);
         graph.setGlobalStreamExchangeMode(deriveGlobalStreamExchangeModeBatch());
         graph.setAllVerticesInSameSlotSharingGroupByDefault(false);
     }

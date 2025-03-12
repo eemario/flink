@@ -28,6 +28,7 @@ import org.apache.flink.table.connector.sink.abilities.SupportsOverwrite;
 import org.apache.flink.table.connector.source.ScanTableSource;
 import org.apache.flink.table.connector.source.abilities.SupportsScanRange;
 import org.apache.flink.table.delegation.Planner;
+import org.apache.flink.table.planner.functions.bridging.BridgingSqlAggFunction;
 import org.apache.flink.table.planner.functions.bridging.BridgingSqlFunction;
 import org.apache.flink.table.planner.hint.FlinkHints;
 import org.apache.flink.table.planner.plan.abilities.sink.OverwriteSpec;
@@ -39,6 +40,7 @@ import org.apache.flink.table.planner.plan.utils.DefaultRelShuttle;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.JoinRelType;
 import org.apache.calcite.rel.hint.RelHint;
+import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.logical.LogicalCorrelate;
 import org.apache.calcite.rel.logical.LogicalFilter;
 import org.apache.calcite.rel.logical.LogicalJoin;
@@ -184,6 +186,8 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
             return visitFilter((LogicalFilter) rel, targetTimeType);
         } else if (rel instanceof LogicalCorrelate) {
             return visitCorrelate((LogicalCorrelate) rel, targetTimeType);
+        } else if (rel instanceof LogicalAggregate) {
+            return visitAggregate((LogicalAggregate) rel, targetTimeType);
         }
         // TODO Support other RelNodes
         LOG.info("Unsupported RelNode: {}.", rel.getClass().getName());
@@ -447,6 +451,10 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
         return newRelNode;
     }
 
+    private RelNode visitAggregate(LogicalAggregate agg, IncrementalTimeType targetTimeType) {
+        return defaultVisit(agg, targetTimeType);
+    }
+
     private long getScanRangeStart(ObjectIdentifier sourceIdentifier, Catalog catalog) {
         String raw =
                 tableConfig.get(
@@ -535,6 +543,9 @@ public class IncrementalProcessingShuttle extends DefaultRelShuttle {
                 SqlOperator sqlOperator = call.getOperator();
                 if (sqlOperator instanceof BridgingSqlFunction) {
                     // it's a user-defined scalar or table function
+                    // TODO further check the definition of the function
+                } else if (sqlOperator instanceof BridgingSqlAggFunction) {
+                    // it's a user-defined aggregate function
                     // TODO further check the definition of the function
                 } else {
                     IncrementalSqlOperatorTable incrementalSqlOperatorTable =

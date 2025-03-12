@@ -33,7 +33,9 @@ import org.apache.flink.table.catalog.exceptions.TableNotExistException;
 import org.apache.flink.table.functions.TableFunction;
 import org.apache.flink.table.operations.ModifyOperation;
 import org.apache.flink.table.operations.Operation;
+import org.apache.flink.table.planner.delegation.IncrementalPlanner;
 import org.apache.flink.table.planner.plan.utils.FlinkRelOptUtil;
+import org.apache.flink.table.planner.plan.utils.JavaUserDefinedAggFunctions;
 import org.apache.flink.table.planner.utils.PlanKind;
 import org.apache.flink.table.planner.utils.TableTestBase;
 import org.apache.flink.table.planner.utils.TableTestUtil;
@@ -63,7 +65,13 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
     private static final String TEST_CATALOG_NAME = "testCatalog";
     private static final String TEST_DATABASE_NAME = "default";
 
-    private final TableTestUtil util = batchTestUtil(TableConfig.getDefault());
+    private final TableTestUtil util =
+            batchTestUtil(
+                    TableConfig.getDefault()
+                            .set(
+                                    BatchIncrementalExecutionOptions.INCREMENTAL_EXECUTION_MODE,
+                                    BatchIncrementalExecutionOptions.IncrementalExecutionMode
+                                            .AUTO));
     private final Catalog catalog = new MockCatalog("MockCatalog", TEST_DATABASE_NAME);
 
     @BeforeEach
@@ -267,13 +275,6 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
     }
 
     @Test
-    public void testIncrementalProcessingShuttleWithProjectUnsupportedFunction() {
-        // Unsupported for now.
-        String sql = "INSERT OVERWRITE sink SELECT COUNT(a) FROM t1;";
-        assertUnsupported(sql);
-    }
-
-    @Test
     public void testIncrementalProcessingShuttleWithJoin() {
         // mock restored source offsets
         SourceOffsets restoredOffsets = new SourceOffsets();
@@ -384,7 +385,9 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
 
     @Test
     public void testIncrementalProcessingShuttleWithAggregate() {
-        // Unsupported for now.
+        assertThat(util.getPlanner() instanceof IncrementalPlanner).isTrue();
+
+        // changelog mode for agg is [I,UA] when sink has pk, [I,UB,UA] when sink has no pk.
         util.tableEnv()
                 .executeSql(
                         "CREATE TABLE aggSink (\n"
@@ -393,11 +396,15 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
                                 + ") WITH (\n"
                                 + " 'connector' = 'values',\n"
                                 + " 'bounded' = 'true',\n"
-                                + " 'enable-overwrite' = 'true'\n"
+                                + " 'enable-overwrite' = 'true',\n"
+                                + " 'sink-insert-only' = 'false'"
                                 + ")");
 
-        String sql = "INSERT OVERWRITE aggSink SELECT a, AVG(a) FROM t1 GROUP BY a;";
-        assertUnsupported(sql);
+        util.tableEnv()
+                .createTemporarySystemFunction(
+                        "TestUDAF", JavaUserDefinedAggFunctions.WeightedAvgWithMerge.class);
+        String sql = "INSERT OVERWRITE aggSink SELECT 1, TestUDAF(a, a) FROM t1;";
+        assertSupportedPlans(sql, 1, null);
     }
 
     @Test
@@ -470,7 +477,7 @@ public class IncrementalProcessingShuttleTest extends TableTestBase {
         assertThat(shuttle.getCachedEndOffsets().getOffsets().size()).isEqualTo(sourceNum);
         util.assertPlanEquals(
                 new RelNode[] {incremental},
-                new ExplainDetail[] {},
+                new ExplainDetail[] {ExplainDetail.CHANGELOG_MODE},
                 true,
                 new Enumeration.Value[] {PlanKind.AST(), PlanKind.OPT_REL(), PlanKind.OPT_EXEC()},
                 () -> UNIT,

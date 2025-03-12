@@ -20,6 +20,7 @@ package org.apache.flink.table.planner.delegation;
 
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.RuntimeExecutionMode;
+import org.apache.flink.configuration.BatchIncrementalExecutionOptions;
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ExecutionOptions;
 import org.apache.flink.table.api.TableException;
@@ -64,6 +65,17 @@ public final class DefaultPlannerFactory implements PlannerFactory {
                         context.getCatalogManager(),
                         context.getClassLoader());
             case BATCH:
+                if (context.getTableConfig()
+                        .get(BatchIncrementalExecutionOptions.INCREMENTAL_EXECUTION_MODE)
+                        .equals(BatchIncrementalExecutionOptions.IncrementalExecutionMode.AUTO)) {
+                    return new IncrementalPlanner(
+                            context.getExecutor(),
+                            context.getTableConfig(),
+                            context.getModuleManager(),
+                            context.getFunctionCatalog(),
+                            context.getCatalogManager(),
+                            context.getClassLoader());
+                }
                 return new BatchPlanner(
                         context.getExecutor(),
                         context.getTableConfig(),

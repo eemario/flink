@@ -93,7 +93,8 @@ public class DefaultExecutor implements Executor {
         }
 
         final StreamGraph streamGraph =
-                executionEnvironment.generateStreamGraph(planningResult.getTransformations());
+                executionEnvironment.generateStreamGraph(
+                        planningResult.getTransformations(), planningResult.isIncremental());
         setJobName(streamGraph, defaultJobName);
         for (JobStatusHook hook : jobStatusHookList) {
             streamGraph.registerJobStatusHook(hook);

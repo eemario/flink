@@ -15,14 +15,33 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.flink.table.planner.plan.optimize.program
 
-/** A FlinkOptimizeContext allows to obtain batch table environment information when optimizing. */
-trait BatchOptimizeContext extends FlinkOptimizeContext {
+package org.apache.flink.table.runtime.operators.bundle.trigger;
 
-  /**
-   * Returns true if the root is required to send UPDATE_BEFORE message with UPDATE_AFTER message
-   * together for update changes.
-   */
-  def isUpdateBeforeRequired: Boolean = false
+/**
+ * A {@link BundleTrigger} implementation that never triggers.
+ *
+ * @param <T> The input element type.
+ */
+public class NeverTrigger<T> implements BundleTrigger<T> {
+
+    @Override
+    public void registerCallback(BundleTriggerCallback callback) {
+        // Do nothing, never trigger the callback
+    }
+
+    @Override
+    public void onElement(final T element) throws Exception {
+        // Do nothing, never trigger the callback
+    }
+
+    @Override
+    public void reset() {
+        // Do nothing, no state to reset
+    }
+
+    @Override
+    public String explain() {
+        return "NeverTrigger";
+    }
 }

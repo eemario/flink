@@ -77,7 +77,7 @@ object FlinkBatchRuleSets {
     RemoveUnreachableCoalesceArgumentsRule.CALC_INSTANCE
   )
 
-  private val LIMIT_RULES: RuleSet = RuleSets.ofList(
+  val LIMIT_RULES: RuleSet = RuleSets.ofList(
     // push down localLimit
     PushLimitIntoTableSourceScanRule.INSTANCE,
     PushLimitIntoLegacyTableSourceScanRule.INSTANCE)
@@ -126,7 +126,7 @@ object FlinkBatchRuleSets {
       )).asJava)
 
   /** RuleSet about filter */
-  private val FILTER_RULES: RuleSet = RuleSets.ofList(
+  val FILTER_RULES: RuleSet = RuleSets.ofList(
     // push a filter into a join
     FlinkFilterJoinRule.FILTER_INTO_JOIN,
     // push filter into the children of a join
@@ -232,7 +232,7 @@ object FlinkBatchRuleSets {
   )
 
   /** RuleSet to do logical optimize. This RuleSet is a sub-set of [[LOGICAL_OPT_RULES]]. */
-  private val LOGICAL_RULES: RuleSet = RuleSets.ofList(
+  val LOGICAL_RULES: RuleSet = RuleSets.ofList(
     // scan optimization
     PushProjectIntoTableSourceScanRule.INSTANCE,
     PushProjectIntoLegacyTableSourceScanRule.INSTANCE,

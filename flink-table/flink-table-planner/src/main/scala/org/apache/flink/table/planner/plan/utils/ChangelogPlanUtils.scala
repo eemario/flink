@@ -19,6 +19,7 @@ package org.apache.flink.table.planner.plan.utils
 
 import org.apache.flink.table.connector.ChangelogMode
 import org.apache.flink.table.planner.plan.`trait`.{ModifyKind, ModifyKindSetTraitDef, UpdateKind, UpdateKindTraitDef}
+import org.apache.flink.table.planner.plan.nodes.physical.FlinkPhysicalRel
 import org.apache.flink.table.planner.plan.nodes.physical.stream.StreamPhysicalRel
 import org.apache.flink.table.planner.plan.optimize.program.FlinkChangelogModeInferenceProgram
 import org.apache.flink.types.RowKind
@@ -45,8 +46,8 @@ object ChangelogPlanUtils {
    *
    * <p>Note: this method must be called after [[FlinkChangelogModeInferenceProgram]] is applied.
    */
-  def inputInsertOnly(node: StreamPhysicalRel): Boolean = {
-    node.getInputs.forall { case input: StreamPhysicalRel => isInsertOnly(input) }
+  def inputInsertOnly(node: FlinkPhysicalRel): Boolean = {
+    node.getInputs.forall { case input: FlinkPhysicalRel => isInsertOnly(input) }
   }
 
   /**
@@ -54,7 +55,7 @@ object ChangelogPlanUtils {
    *
    * <p>Note: this method must be called after [[FlinkChangelogModeInferenceProgram]] is applied.
    */
-  def isInsertOnly(node: StreamPhysicalRel): Boolean = {
+  def isInsertOnly(node: FlinkPhysicalRel): Boolean = {
     val modifyKindSetTrait = node.getTraitSet.getTrait(ModifyKindSetTraitDef.INSTANCE)
     modifyKindSetTrait.modifyKindSet.isInsertOnly
   }
@@ -66,7 +67,7 @@ object ChangelogPlanUtils {
    *
    * <p>Note: this method must be called after [[FlinkChangelogModeInferenceProgram]] is applied.
    */
-  def generateUpdateBefore(node: StreamPhysicalRel): Boolean = {
+  def generateUpdateBefore(node: FlinkPhysicalRel): Boolean = {
     val updateKindTrait = node.getTraitSet.getTrait(UpdateKindTraitDef.INSTANCE)
     updateKindTrait.updateKind == UpdateKind.BEFORE_AND_AFTER
   }
@@ -78,7 +79,7 @@ object ChangelogPlanUtils {
    *
    * <p>Note: this method must be called after [[FlinkChangelogModeInferenceProgram]] is applied.
    */
-  def getChangelogMode(node: StreamPhysicalRel): Option[ChangelogMode] = {
+  def getChangelogMode(node: FlinkPhysicalRel): Option[ChangelogMode] = {
     val modifyKindSet = node.getTraitSet
       .getTrait(ModifyKindSetTraitDef.INSTANCE)
       .modifyKindSet

@@ -62,8 +62,8 @@ class StreamPhysicalGroupAggregateRule(config: Config) extends ConverterRule(con
     val requiredTraitSet = rel.getCluster.getPlanner
       .emptyTraitSet()
       .replace(requiredDistribution)
-      .replace(FlinkConventions.STREAM_PHYSICAL)
-    val providedTraitSet = rel.getTraitSet.replace(FlinkConventions.STREAM_PHYSICAL)
+      .replace(config.outTrait())
+    val providedTraitSet = rel.getTraitSet.replace(config.outTrait())
     val newInput: RelNode = RelOptRule.convert(agg.getInput, requiredTraitSet)
 
     new StreamPhysicalGroupAggregate(
@@ -84,5 +84,12 @@ object StreamPhysicalGroupAggregateRule {
       classOf[FlinkLogicalAggregate],
       FlinkConventions.LOGICAL,
       FlinkConventions.STREAM_PHYSICAL,
+      "StreamPhysicalGroupAggregateRule"))
+
+  val INCREMENTAL_INSTANCE: RelOptRule = new StreamPhysicalGroupAggregateRule(
+    Config.INSTANCE.withConversion(
+      classOf[FlinkLogicalAggregate],
+      FlinkConventions.LOGICAL,
+      FlinkConventions.BATCH_PHYSICAL,
       "StreamPhysicalGroupAggregateRule"))
 }
