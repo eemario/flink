@@ -7,7 +7,7 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *    http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,7 +21,6 @@ package org.apache.flink.runtime.dispatcher.runner;
 import org.apache.flink.runtime.dispatcher.Dispatcher;
 import org.apache.flink.runtime.dispatcher.DispatcherFactory;
 import org.apache.flink.runtime.dispatcher.DispatcherId;
-import org.apache.flink.runtime.dispatcher.NoOpDispatcherBootstrap;
 import org.apache.flink.runtime.dispatcher.PartialDispatcherServices;
 import org.apache.flink.runtime.dispatcher.PartialDispatcherServicesWithJobPersistenceComponents;
 import org.apache.flink.runtime.highavailability.JobResultStore;
@@ -68,12 +67,10 @@ class DefaultDispatcherGatewayServiceFactory
                             fencingToken,
                             recoveredJobs,
                             recoveredDirtyJobResults,
-                            (dispatcherGateway, scheduledExecutor, errorHandler) ->
-                                    new NoOpDispatcherBootstrap(),
+                            null,
                             PartialDispatcherServicesWithJobPersistenceComponents.from(
-                                    partialDispatcherServices,
-                                    executionPlanWriter,
-                                    jobResultStore));
+                                    partialDispatcherServices, executionPlanWriter, jobResultStore),
+                            DispatcherFactory.DispatcherMode.SESSION);
         } catch (Exception e) {
             throw new FlinkRuntimeException("Could not create the Dispatcher rpc endpoint.", e);
         }

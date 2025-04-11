@@ -23,6 +23,7 @@ import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.core.execution.CheckpointType;
 import org.apache.flink.core.execution.SavepointFormatType;
+import org.apache.flink.runtime.application.ApplicationID;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsSnapshot;
 import org.apache.flink.runtime.checkpoint.CompletedCheckpoint;
 import org.apache.flink.runtime.clusterframework.types.ResourceID;
@@ -31,7 +32,9 @@ import org.apache.flink.runtime.executiongraph.ArchivedExecutionGraph;
 import org.apache.flink.runtime.jobgraph.JobResourceRequirements;
 import org.apache.flink.runtime.jobmaster.JobResult;
 import org.apache.flink.runtime.messages.Acknowledge;
+import org.apache.flink.runtime.messages.FlinkApplicationNotFoundException;
 import org.apache.flink.runtime.messages.FlinkJobNotFoundException;
+import org.apache.flink.runtime.messages.webmonitor.ClusterApplicationsOverview;
 import org.apache.flink.runtime.messages.webmonitor.ClusterOverview;
 import org.apache.flink.runtime.messages.webmonitor.MultipleJobsDetails;
 import org.apache.flink.runtime.metrics.dump.MetricQueryService;
@@ -40,6 +43,7 @@ import org.apache.flink.runtime.operators.coordination.CoordinationResponse;
 import org.apache.flink.runtime.rest.handler.async.OperationResult;
 import org.apache.flink.runtime.rest.handler.job.AsynchronousJobOperationKey;
 import org.apache.flink.runtime.rest.messages.ThreadDumpInfo;
+import org.apache.flink.runtime.rest.messages.application.ApplicationDetailsInfo;
 import org.apache.flink.runtime.rpc.RpcGateway;
 import org.apache.flink.runtime.rpc.RpcTimeout;
 import org.apache.flink.runtime.scheduler.ExecutionGraphInfo;
@@ -96,6 +100,19 @@ public interface RestfulGateway extends RpcGateway {
             JobID jobId, @RpcTimeout Duration timeout);
 
     /**
+     * Requests the {@link ApplicationDetailsInfo} containing additional information about the
+     * application. If there is no such application, then the future is completed with a {@link
+     * FlinkApplicationNotFoundException}.
+     *
+     * @param applicationId identifying the application requested
+     * @param timeout for the asynchronous operation
+     * @return Future containing the {@link ApplicationDetailsInfo} for the given applicationId,
+     *     otherwise {@link FlinkApplicationNotFoundException}
+     */
+    CompletableFuture<ApplicationDetailsInfo> requestApplication(
+            ApplicationID applicationId, @RpcTimeout Duration timeout);
+
+    /**
      * Requests the {@link CheckpointStatsSnapshot} containing checkpointing information.
      *
      * @param jobId identifying the job whose {@link CheckpointStatsSnapshot} is requested
@@ -129,6 +146,15 @@ public interface RestfulGateway extends RpcGateway {
      * @return Future containing the status overview
      */
     CompletableFuture<ClusterOverview> requestClusterOverview(@RpcTimeout Duration timeout);
+
+    /**
+     * Requests the cluster applications overview.
+     *
+     * @param timeout for the asynchronous operation
+     * @return Future containing the status overview
+     */
+    CompletableFuture<ClusterApplicationsOverview> requestClusterApplicationsOverview(
+            @RpcTimeout Duration timeout);
 
     /**
      * Requests the addresses of the {@link MetricQueryService} to query.

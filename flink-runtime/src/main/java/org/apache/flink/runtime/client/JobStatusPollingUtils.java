@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.flink.client.deployment.application;
+package org.apache.flink.runtime.client;
 
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.JobID;
@@ -31,7 +31,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 /** Utilities for periodically polling the status of a job. */
-class JobStatusPollingUtils {
+public class JobStatusPollingUtils {
 
     /**
      * Polls the {@link JobStatus} of a job periodically and when the job has reached a terminal
@@ -46,7 +46,7 @@ class JobStatusPollingUtils {
      * @param retryPeriod the interval between two consecutive job status requests
      * @return a future that will contain the job's {@link JobResult}.
      */
-    static CompletableFuture<JobResult> getJobResult(
+    public static CompletableFuture<JobResult> getJobResult(
             final DispatcherGateway dispatcherGateway,
             final JobID jobId,
             final ScheduledExecutor scheduledExecutor,

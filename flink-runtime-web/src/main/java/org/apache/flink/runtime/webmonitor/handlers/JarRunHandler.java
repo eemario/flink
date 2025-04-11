@@ -19,15 +19,19 @@
 package org.apache.flink.runtime.webmonitor.handlers;
 
 import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.api.common.JobID;
 import org.apache.flink.client.deployment.application.ApplicationRunner;
+import org.apache.flink.client.deployment.application.PackagedProgramApplication;
 import org.apache.flink.client.deployment.application.executors.EmbeddedExecutor;
 import org.apache.flink.client.program.PackagedProgram;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.DeploymentOptions;
 import org.apache.flink.configuration.StateRecoveryOptions;
 import org.apache.flink.core.execution.RecoveryClaimMode;
+import org.apache.flink.runtime.application.AbstractApplication;
 import org.apache.flink.runtime.dispatcher.DispatcherGateway;
 import org.apache.flink.runtime.jobgraph.SavepointRestoreSettings;
+import org.apache.flink.runtime.messages.Acknowledge;
 import org.apache.flink.runtime.rest.handler.AbstractRestHandler;
 import org.apache.flink.runtime.rest.handler.HandlerRequest;
 import org.apache.flink.runtime.rest.handler.RestHandlerException;
@@ -93,7 +97,8 @@ public class JarRunHandler
             throws RestHandlerException {
 
         final Configuration effectiveConfiguration = new Configuration(configuration);
-        effectiveConfiguration.set(DeploymentOptions.ATTACHED, false);
+        // do not enforce detached mode
+        //        effectiveConfiguration.set(DeploymentOptions.ATTACHED, false);
         effectiveConfiguration.set(DeploymentOptions.TARGET, EmbeddedExecutor.NAME);
 
         final JarHandlerContext context = JarHandlerContext.fromRequest(request, jarDir, log);
@@ -104,26 +109,25 @@ public class JarRunHandler
 
         final PackagedProgram program = context.toPackagedProgram(effectiveConfiguration);
 
-        return CompletableFuture.supplyAsync(
-                        () -> applicationRunner.run(gateway, program, effectiveConfiguration),
-                        executor)
-                .handle(
-                        (jobIds, throwable) -> {
-                            program.close();
-                            if (throwable != null) {
-                                throw new CompletionException(
-                                        new RestHandlerException(
-                                                "Could not execute application.",
-                                                HttpResponseStatus.BAD_REQUEST,
-                                                throwable));
-                            } else if (jobIds.isEmpty()) {
-                                throw new CompletionException(
-                                        new RestHandlerException(
-                                                "No jobs included in application.",
-                                                HttpResponseStatus.BAD_REQUEST));
-                            }
-                            return new JarRunResponseBody(jobIds.get(0));
-                        });
+        // TODO enforce single job execution to keep the old behavior
+        final AbstractApplication application =
+                new PackagedProgramApplication(program, effectiveConfiguration, false);
+
+        CompletableFuture<Acknowledge> submissionFuture =
+                gateway.submitApplication(application, timeout);
+
+        return submissionFuture.handle(
+                (ack, throwable) -> {
+                    if (throwable != null) {
+                        throw new CompletionException(
+                                new RestHandlerException(
+                                        "Could not execute application.",
+                                        HttpResponseStatus.BAD_REQUEST,
+                                        throwable));
+                    }
+                    // return a random job id to keep compatibility
+                    return new JarRunResponseBody(new JobID());
+                });
     }
 
     private SavepointRestoreSettings getSavepointRestoreSettings(

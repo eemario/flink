@@ -18,11 +18,14 @@
 
 package org.apache.flink.runtime.dispatcher;
 
+import org.apache.flink.runtime.application.AbstractApplication;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobmaster.JobMaster;
 import org.apache.flink.runtime.jobmaster.JobResult;
 import org.apache.flink.runtime.rpc.RpcService;
 import org.apache.flink.streaming.api.graph.ExecutionPlan;
+
+import javax.annotation.Nullable;
 
 import java.util.Collection;
 
@@ -37,15 +40,17 @@ public class StandaloneDispatcher extends Dispatcher {
             DispatcherId fencingToken,
             Collection<ExecutionPlan> recoveredJobs,
             Collection<JobResult> recoveredDirtyJobResults,
-            DispatcherBootstrapFactory dispatcherBootstrapFactory,
-            DispatcherServices dispatcherServices)
+            @Nullable AbstractApplication bootstrapApplication,
+            DispatcherServices dispatcherServices,
+            DispatcherFactory.DispatcherMode dispatcherMode)
             throws Exception {
         super(
                 rpcService,
                 fencingToken,
                 recoveredJobs,
                 recoveredDirtyJobResults,
-                dispatcherBootstrapFactory,
-                dispatcherServices);
+                bootstrapApplication,
+                dispatcherServices,
+                dispatcherMode);
     }
 }

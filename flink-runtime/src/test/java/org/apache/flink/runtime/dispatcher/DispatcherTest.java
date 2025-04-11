@@ -28,6 +28,7 @@ import org.apache.flink.core.execution.SavepointFormatType;
 import org.apache.flink.core.failure.FailureEnricher;
 import org.apache.flink.core.testutils.FlinkAssertions;
 import org.apache.flink.core.testutils.OneShotLatch;
+import org.apache.flink.runtime.application.TestingApplication;
 import org.apache.flink.runtime.blob.BlobServer;
 import org.apache.flink.runtime.blob.PermanentBlobKey;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsSnapshot;
@@ -913,13 +914,13 @@ public class DispatcherTest extends AbstractDispatcherTest {
                                                 .applicationStatus(ApplicationStatus.SUCCEEDED)
                                                 .netRuntime(1)
                                                 .build()))
-                        .setDispatcherBootstrapFactory(
-                                (ignoredDispatcherGateway,
-                                        ignoredScheduledExecutor,
-                                        ignoredFatalErrorHandler) -> {
-                                    dispatcherBootstrapLatch.trigger();
-                                    return new NoOpDispatcherBootstrap();
-                                })
+                        .setBootstrapApplication(
+                                new TestingApplication(
+                                        (ignored -> {
+                                            dispatcherBootstrapLatch.trigger();
+                                            return CompletableFuture.completedFuture(
+                                                    Acknowledge.get());
+                                        })))
                         .build(rpcService);
 
         dispatcher.start();

@@ -82,7 +82,12 @@ public class DetachedApplicationRunner implements ApplicationRunner {
 
         try {
             ClientUtils.executeProgram(
-                    executorServiceLoader, configuration, program, enforceSingleJobExecution, true);
+                    executorServiceLoader,
+                    configuration,
+                    program,
+                    enforceSingleJobExecution,
+                    true,
+                    null);
         } catch (ProgramInvocationException e) {
             LOG.warn("Could not execute application: ", e);
             throw new FlinkRuntimeException("Could not execute application.", e);

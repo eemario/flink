@@ -33,6 +33,8 @@ import org.apache.flink.runtime.rest.RestServerEndpoint;
 import org.apache.flink.runtime.rest.handler.AbstractRestHandler;
 import org.apache.flink.runtime.rest.handler.RestHandlerConfiguration;
 import org.apache.flink.runtime.rest.handler.RestHandlerSpecification;
+import org.apache.flink.runtime.rest.handler.application.ApplicationDetailsHandler;
+import org.apache.flink.runtime.rest.handler.cluster.ClusterApplicationsOverviewHandler;
 import org.apache.flink.runtime.rest.handler.cluster.ClusterConfigHandler;
 import org.apache.flink.runtime.rest.handler.cluster.ClusterOverviewHandler;
 import org.apache.flink.runtime.rest.handler.cluster.DashboardConfigHandler;
@@ -107,6 +109,7 @@ import org.apache.flink.runtime.rest.handler.taskmanager.TaskManagerProfilingLis
 import org.apache.flink.runtime.rest.handler.taskmanager.TaskManagerStdoutFileHandler;
 import org.apache.flink.runtime.rest.handler.taskmanager.TaskManagerThreadDumpHandler;
 import org.apache.flink.runtime.rest.handler.taskmanager.TaskManagersHandler;
+import org.apache.flink.runtime.rest.messages.ClusterApplicationsOverviewHeaders;
 import org.apache.flink.runtime.rest.messages.ClusterConfigurationInfoHeaders;
 import org.apache.flink.runtime.rest.messages.ClusterOverviewHeaders;
 import org.apache.flink.runtime.rest.messages.DashboardConfigurationHeaders;
@@ -130,6 +133,7 @@ import org.apache.flink.runtime.rest.messages.TaskManagerLogUrlHeaders;
 import org.apache.flink.runtime.rest.messages.TerminationModeQueryParameter;
 import org.apache.flink.runtime.rest.messages.YarnCancelJobTerminationHeaders;
 import org.apache.flink.runtime.rest.messages.YarnStopJobTerminationHeaders;
+import org.apache.flink.runtime.rest.messages.application.ApplicationDetailsHeaders;
 import org.apache.flink.runtime.rest.messages.checkpoints.CheckpointConfigHeaders;
 import org.apache.flink.runtime.rest.messages.checkpoints.CheckpointStatisticDetailsHeaders;
 import org.apache.flink.runtime.rest.messages.checkpoints.CheckpointingStatisticsHeaders;
@@ -308,6 +312,20 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
                         timeout,
                         responseHeaders,
                         ClusterOverviewHeaders.getInstance());
+
+        ClusterApplicationsOverviewHandler clusterApplicationsOverviewHandler =
+                new ClusterApplicationsOverviewHandler(
+                        leaderRetriever,
+                        timeout,
+                        responseHeaders,
+                        ClusterApplicationsOverviewHeaders.getInstance());
+
+        ApplicationDetailsHandler applicationDetailsHandler =
+                new ApplicationDetailsHandler(
+                        leaderRetriever,
+                        timeout,
+                        responseHeaders,
+                        ApplicationDetailsHeaders.getInstance());
 
         DashboardConfigHandler dashboardConfigHandler =
                 new DashboardConfigHandler(
@@ -737,6 +755,13 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
         }
 
         handlers.add(Tuple2.of(clusterOverviewHandler.getMessageHeaders(), clusterOverviewHandler));
+        handlers.add(
+                Tuple2.of(
+                        clusterApplicationsOverviewHandler.getMessageHeaders(),
+                        clusterApplicationsOverviewHandler));
+        handlers.add(
+                Tuple2.of(
+                        applicationDetailsHandler.getMessageHeaders(), applicationDetailsHandler));
         handlers.add(
                 Tuple2.of(
                         clusterConfigurationHandler.getMessageHeaders(),

@@ -20,6 +20,7 @@ package org.apache.flink.configuration;
 
 import org.apache.flink.annotation.Experimental;
 import org.apache.flink.annotation.PublicEvolving;
+import org.apache.flink.annotation.docs.Documentation;
 import org.apache.flink.configuration.description.Description;
 import org.apache.flink.configuration.description.TextElement;
 
@@ -109,6 +110,16 @@ public class DeploymentOptions {
                                             TextElement.text(SHUTDOWN_ON_APPLICATION_FINISH.key()),
                                             TextElement.text(HighAvailabilityOptions.HA_MODE.key()))
                                     .build());
+
+    @Experimental
+    @Documentation.ExcludeFromDocumentation("Experimental")
+    public static final ConfigOption<Boolean> TERMINATE_APPLICATION_ON_ANY_JOB_EXCEPTION =
+            ConfigOptions.key("execution.terminate-application-on-any-job-exception")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription(
+                            "When it is set to true, the application will complete exceptionally if any job fails or is canceled."
+                                    + " When it is set to false, the application will finish after all jobs reach terminal states.");
 
     @Experimental
     public static final ConfigOption<List<String>> PROGRAM_CONFIG_WILDCARDS =

@@ -26,6 +26,7 @@ import org.apache.flink.api.common.operators.ResourceSpec;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.execution.JobStatusHook;
 import org.apache.flink.core.fs.Path;
+import org.apache.flink.runtime.application.ApplicationID;
 import org.apache.flink.runtime.blob.PermanentBlobKey;
 import org.apache.flink.runtime.jobgraph.tasks.JobCheckpointingSettings;
 import org.apache.flink.runtime.jobmanager.scheduler.CoLocationGroup;
@@ -83,6 +84,8 @@ public class JobGraph implements ExecutionPlan {
     /** ID of this job. May be set if specific job id is desired (e.g. session management) */
     private JobID jobID;
 
+    private ApplicationID applicationID;
+
     /** Name of this job. */
     private final String jobName;
 
@@ -134,7 +137,7 @@ public class JobGraph implements ExecutionPlan {
      * @param jobName The name of the job.
      */
     public JobGraph(String jobName) {
-        this(null, jobName);
+        this(null, null, jobName);
     }
 
     /**
@@ -146,7 +149,12 @@ public class JobGraph implements ExecutionPlan {
      * @param jobName The name of the job.
      */
     public JobGraph(@Nullable JobID jobId, String jobName) {
+        this(jobId, null, jobName);
+    }
+
+    public JobGraph(@Nullable JobID jobId, @Nullable ApplicationID applicationId, String jobName) {
         this.jobID = jobId == null ? new JobID() : jobId;
+        this.applicationID = applicationId == null ? new ApplicationID() : applicationId;
         this.jobName = jobName == null ? "(unnamed job)" : jobName;
 
         try {
@@ -167,7 +175,7 @@ public class JobGraph implements ExecutionPlan {
      * @param vertices The vertices to add to the graph.
      */
     public JobGraph(@Nullable JobID jobId, String jobName, JobVertex... vertices) {
-        this(jobId, jobName);
+        this(jobId, null, jobName);
 
         for (JobVertex vertex : vertices) {
             addVertex(vertex);
@@ -186,9 +194,18 @@ public class JobGraph implements ExecutionPlan {
         return this.jobID;
     }
 
+    @Override
+    public ApplicationID getApplicationID() {
+        return this.applicationID;
+    }
+
     /** Sets the ID of the job. */
     public void setJobID(JobID jobID) {
         this.jobID = jobID;
+    }
+
+    public void setApplicationID(ApplicationID applicationID) {
+        this.applicationID = applicationID;
     }
 
     /**
@@ -637,7 +654,7 @@ public class JobGraph implements ExecutionPlan {
 
     @Override
     public String toString() {
-        return "JobGraph(jobId: " + jobID + ")";
+        return "JobGraph(jobId: " + jobID + ", applicationId:" + applicationID + ")";
     }
 
     @Override

@@ -20,17 +20,18 @@ package org.apache.flink.client;
 
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
-import org.apache.flink.client.cli.ClientOptions;
 import org.apache.flink.client.program.PackagedProgram;
 import org.apache.flink.client.program.ProgramInvocationException;
 import org.apache.flink.client.program.StreamContextEnvironment;
 import org.apache.flink.client.program.rest.retry.ExponentialWaitStrategy;
 import org.apache.flink.client.program.rest.retry.WaitStrategy;
+import org.apache.flink.configuration.ClientOptions;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.DeploymentOptions;
 import org.apache.flink.core.execution.JobClient;
 import org.apache.flink.core.execution.PipelineExecutorServiceLoader;
 import org.apache.flink.datastream.impl.ExecutionContextEnvironment;
+import org.apache.flink.runtime.application.ApplicationID;
 import org.apache.flink.runtime.client.JobInitializationException;
 import org.apache.flink.runtime.jobmaster.JobResult;
 import org.apache.flink.runtime.rest.HttpHeader;
@@ -41,6 +42,8 @@ import org.apache.flink.util.function.SupplierWithException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import javax.annotation.Nullable;
 
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -80,6 +83,23 @@ public enum ClientUtils {
             boolean enforceSingleJobExecution,
             boolean suppressSysout)
             throws ProgramInvocationException {
+        executeProgram(
+                executorServiceLoader,
+                configuration,
+                program,
+                enforceSingleJobExecution,
+                suppressSysout,
+                null);
+    }
+
+    public static void executeProgram(
+            PipelineExecutorServiceLoader executorServiceLoader,
+            Configuration configuration,
+            PackagedProgram program,
+            boolean enforceSingleJobExecution,
+            boolean suppressSysout,
+            @Nullable ApplicationID applicationId)
+            throws ProgramInvocationException {
         checkNotNull(executorServiceLoader);
         final ClassLoader userCodeClassLoader = program.getUserCodeClassLoader();
         final ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
@@ -95,7 +115,8 @@ public enum ClientUtils {
                     configuration,
                     userCodeClassLoader,
                     enforceSingleJobExecution,
-                    suppressSysout);
+                    suppressSysout,
+                    applicationId);
 
             // For DataStream v2.
             ExecutionContextEnvironment.setAsContext(

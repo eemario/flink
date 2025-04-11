@@ -16,11 +16,10 @@
  * limitations under the License.
  */
 
-package org.apache.flink.client.deployment.application;
+package org.apache.flink.runtime.client;
 
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.JobID;
-import org.apache.flink.runtime.client.JobExecutionException;
 import org.apache.flink.runtime.clusterframework.ApplicationStatus;
 import org.apache.flink.runtime.jobmaster.JobResult;
 

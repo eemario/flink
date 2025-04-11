@@ -21,8 +21,8 @@ package org.apache.flink.runtime.dispatcher.runner;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.testutils.AllCallbackWrapper;
+import org.apache.flink.runtime.application.AbstractApplication;
 import org.apache.flink.runtime.dispatcher.Dispatcher;
-import org.apache.flink.runtime.dispatcher.DispatcherBootstrapFactory;
 import org.apache.flink.runtime.dispatcher.DispatcherFactory;
 import org.apache.flink.runtime.dispatcher.DispatcherGateway;
 import org.apache.flink.runtime.dispatcher.DispatcherId;
@@ -61,6 +61,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import javax.annotation.Nullable;
 
 import java.time.Duration;
 import java.util.Collection;
@@ -253,20 +255,22 @@ class DefaultDispatcherRunnerITCase {
                 DispatcherId fencingToken,
                 Collection<ExecutionPlan> recoveredJobs,
                 Collection<JobResult> recoveredDirtyJobResults,
-                DispatcherBootstrapFactory dispatcherBootstrapFactory,
+                @Nullable AbstractApplication bootstrapApplication,
                 PartialDispatcherServicesWithJobPersistenceComponents
-                        partialDispatcherServicesWithJobPersistenceComponents)
+                        partialDispatcherServicesWithJobPersistenceComponents,
+                DispatcherMode dispatcherMode)
                 throws Exception {
             return new StandaloneDispatcher(
                     rpcService,
                     fencingToken,
                     recoveredJobs,
                     recoveredDirtyJobResults,
-                    dispatcherBootstrapFactory,
+                    bootstrapApplication,
                     DispatcherServices.from(
                             partialDispatcherServicesWithJobPersistenceComponents,
                             jobManagerRunnerFactory,
-                            cleanupRunnerFactory));
+                            cleanupRunnerFactory),
+                    dispatcherMode);
         }
     }
 

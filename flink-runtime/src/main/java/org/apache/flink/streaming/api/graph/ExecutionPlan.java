@@ -24,6 +24,7 @@ import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.cache.DistributedCache;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.fs.Path;
+import org.apache.flink.runtime.application.ApplicationID;
 import org.apache.flink.runtime.blob.PermanentBlobKey;
 import org.apache.flink.runtime.jobgraph.JobType;
 import org.apache.flink.runtime.jobgraph.SavepointRestoreSettings;
@@ -52,6 +53,13 @@ public interface ExecutionPlan extends Serializable {
      * @return the job id
      */
     JobID getJobID();
+
+    /**
+     * Gets the unique identifier of the application.
+     *
+     * @return the application id
+     */
+    ApplicationID getApplicationID();
 
     /**
      * Gets the name of the job.

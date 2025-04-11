@@ -23,6 +23,9 @@ import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.core.execution.CheckpointType;
 import org.apache.flink.core.execution.SavepointFormatType;
+import org.apache.flink.runtime.application.AbstractApplication;
+import org.apache.flink.runtime.application.ApplicationID;
+import org.apache.flink.runtime.application.SingleJobApplication;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsSnapshot;
 import org.apache.flink.runtime.clusterframework.ApplicationStatus;
 import org.apache.flink.runtime.clusterframework.types.ResourceID;
@@ -32,6 +35,7 @@ import org.apache.flink.runtime.dispatcher.TriggerSavepointMode;
 import org.apache.flink.runtime.executiongraph.ArchivedExecutionGraph;
 import org.apache.flink.runtime.jobmaster.JobResult;
 import org.apache.flink.runtime.messages.Acknowledge;
+import org.apache.flink.runtime.messages.webmonitor.ClusterApplicationsOverview;
 import org.apache.flink.runtime.messages.webmonitor.ClusterOverview;
 import org.apache.flink.runtime.messages.webmonitor.MultipleJobsDetails;
 import org.apache.flink.runtime.operators.coordination.CoordinationRequest;
@@ -39,6 +43,7 @@ import org.apache.flink.runtime.operators.coordination.CoordinationResponse;
 import org.apache.flink.runtime.rest.handler.async.OperationResult;
 import org.apache.flink.runtime.rest.handler.job.AsynchronousJobOperationKey;
 import org.apache.flink.runtime.rest.messages.ThreadDumpInfo;
+import org.apache.flink.runtime.rest.messages.application.ApplicationDetailsInfo;
 import org.apache.flink.runtime.rpc.RpcTimeout;
 import org.apache.flink.runtime.scheduler.ExecutionGraphInfo;
 import org.apache.flink.streaming.api.graph.ExecutionPlan;
@@ -128,6 +133,8 @@ public final class TestingDispatcherGateway extends TestingRestfulGateway
             String hostname,
             Function<JobID, CompletableFuture<Acknowledge>> cancelJobFunction,
             Function<JobID, CompletableFuture<ArchivedExecutionGraph>> requestJobFunction,
+            Function<ApplicationID, CompletableFuture<ApplicationDetailsInfo>>
+                    requestApplicationFunction,
             Function<JobID, CompletableFuture<ExecutionGraphInfo>>
                     requestExecutionGraphInfoFunction,
             Function<JobID, CompletableFuture<CheckpointStatsSnapshot>>
@@ -136,6 +143,8 @@ public final class TestingDispatcherGateway extends TestingRestfulGateway
             Function<JobID, CompletableFuture<JobStatus>> requestJobStatusFunction,
             Supplier<CompletableFuture<MultipleJobsDetails>> requestMultipleJobDetailsSupplier,
             Supplier<CompletableFuture<ClusterOverview>> requestClusterOverviewSupplier,
+            Supplier<CompletableFuture<ClusterApplicationsOverview>>
+                    requestClusterApplicationsOverviewSupplier,
             Supplier<CompletableFuture<Collection<String>>>
                     requestMetricQueryServiceAddressesSupplier,
             Supplier<CompletableFuture<Collection<Tuple2<ResourceID, String>>>>
@@ -186,12 +195,14 @@ public final class TestingDispatcherGateway extends TestingRestfulGateway
                 hostname,
                 cancelJobFunction,
                 requestJobFunction,
+                requestApplicationFunction,
                 requestExecutionGraphInfoFunction,
                 requestCheckpointStatsSnapshotFunction,
                 requestJobResultFunction,
                 requestJobStatusFunction,
                 requestMultipleJobDetailsSupplier,
                 requestClusterOverviewSupplier,
+                requestClusterApplicationsOverviewSupplier,
                 requestMetricQueryServiceAddressesSupplier,
                 requestTaskManagerMetricQueryServiceGatewaysSupplier,
                 requestThreadDumpSupplier,
@@ -213,6 +224,16 @@ public final class TestingDispatcherGateway extends TestingRestfulGateway
         this.stopWithSavepointAndGetLocationFunction = stopWithSavepointAndGetLocationFunction;
         this.triggerCheckpointAndGetCheckpointIdFunction =
                 triggerCheckpointAndGetCheckpointIdFunction;
+    }
+
+    @Override
+    public CompletableFuture<Acknowledge> submitApplication(
+            AbstractApplication application, Duration timeout) {
+        if (!(application instanceof SingleJobApplication)) {
+            throw new UnsupportedOperationException("Only support SingleJobApplication.");
+        }
+
+        return submitFunction.apply(((SingleJobApplication) application).getExecutionPlan());
     }
 
     @Override
@@ -388,12 +409,14 @@ public final class TestingDispatcherGateway extends TestingRestfulGateway
                     hostname,
                     cancelJobFunction,
                     requestJobFunction,
+                    requestApplicationFunction,
                     requestExecutionGraphInfoFunction,
                     requestCheckpointStatsSnapshotFunction,
                     requestJobResultFunction,
                     requestJobStatusFunction,
                     requestMultipleJobDetailsSupplier,
                     requestClusterOverviewSupplier,
+                    requestClusterApplicationsOverviewSupplier,
                     requestMetricQueryServiceGatewaysSupplier,
                     requestTaskManagerMetricQueryServiceGatewaysSupplier,
                     requestThreadDumpSupplier,

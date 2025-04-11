@@ -18,9 +18,12 @@
 
 package org.apache.flink.runtime.dispatcher;
 
+import org.apache.flink.runtime.application.AbstractApplication;
 import org.apache.flink.runtime.jobmaster.JobResult;
 import org.apache.flink.runtime.rpc.RpcService;
 import org.apache.flink.streaming.api.graph.ExecutionPlan;
+
+import javax.annotation.Nullable;
 
 import java.util.Collection;
 
@@ -33,8 +36,14 @@ public interface DispatcherFactory {
             DispatcherId fencingToken,
             Collection<ExecutionPlan> recoveredJobs,
             Collection<JobResult> recoveredDirtyJobResults,
-            DispatcherBootstrapFactory dispatcherBootstrapFactory,
+            @Nullable AbstractApplication bootstrapApplication,
             PartialDispatcherServicesWithJobPersistenceComponents
-                    partialDispatcherServicesWithJobPersistenceComponents)
+                    partialDispatcherServicesWithJobPersistenceComponents,
+            DispatcherMode dispatcherMode)
             throws Exception;
+
+    enum DispatcherMode {
+        SESSION,
+        APPLICATION
+    }
 }

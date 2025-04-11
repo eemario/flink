@@ -20,6 +20,7 @@ package org.apache.flink.runtime.dispatcher;
 
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.runtime.application.AbstractApplication;
 import org.apache.flink.runtime.blob.BlobServer;
 import org.apache.flink.runtime.dispatcher.cleanup.CleanupRunnerFactory;
 import org.apache.flink.runtime.dispatcher.cleanup.DispatcherResourceCleanerFactory;
@@ -85,7 +86,7 @@ class TestingDispatcher extends Dispatcher {
             ExecutionGraphInfoStore executionGraphInfoStore,
             JobManagerRunnerFactory jobManagerRunnerFactory,
             CleanupRunnerFactory cleanupRunnerFactory,
-            DispatcherBootstrapFactory dispatcherBootstrapFactory,
+            @Nullable AbstractApplication bootstrapApplication,
             DispatcherOperationCaches dispatcherOperationCaches,
             JobManagerRunnerRegistry jobManagerRunnerRegistry,
             ResourceCleanerFactory resourceCleanerFactory)
@@ -95,7 +96,7 @@ class TestingDispatcher extends Dispatcher {
                 fencingToken,
                 recoveredJobs,
                 recoveredDirtyJobs,
-                dispatcherBootstrapFactory,
+                bootstrapApplication,
                 new DispatcherServices(
                         configuration,
                         highAvailabilityServices,
@@ -115,7 +116,8 @@ class TestingDispatcher extends Dispatcher {
                         ioExecutor,
                         Collections.emptySet()),
                 jobManagerRunnerRegistry,
-                resourceCleanerFactory);
+                resourceCleanerFactory,
+                DispatcherFactory.DispatcherMode.SESSION);
 
         this.startFuture = new CompletableFuture<>();
     }
@@ -197,8 +199,7 @@ class TestingDispatcher extends Dispatcher {
         private JobManagerRunnerFactory jobManagerRunnerFactory =
                 new TestingJobMasterServiceLeadershipRunnerFactory();
         private CleanupRunnerFactory cleanupRunnerFactory = new TestingCleanupRunnerFactory();
-        private DispatcherBootstrapFactory dispatcherBootstrapFactory =
-                (dispatcher, scheduledExecutor, errorHandler) -> new NoOpDispatcherBootstrap();
+        @Nullable private AbstractApplication bootstrapApplication;
         private DispatcherOperationCaches dispatcherOperationCaches =
                 new DispatcherOperationCaches();
         private JobManagerRunnerRegistry jobManagerRunnerRegistry =
@@ -303,9 +304,8 @@ class TestingDispatcher extends Dispatcher {
             return this;
         }
 
-        public Builder setDispatcherBootstrapFactory(
-                DispatcherBootstrapFactory dispatcherBootstrapFactory) {
-            this.dispatcherBootstrapFactory = dispatcherBootstrapFactory;
+        public Builder setBootstrapApplication(@Nullable AbstractApplication bootstrapApplication) {
+            this.bootstrapApplication = bootstrapApplication;
             return this;
         }
 
@@ -362,7 +362,7 @@ class TestingDispatcher extends Dispatcher {
                     executionGraphInfoStore,
                     jobManagerRunnerFactory,
                     cleanupRunnerFactory,
-                    dispatcherBootstrapFactory,
+                    bootstrapApplication,
                     dispatcherOperationCaches,
                     jobManagerRunnerRegistry,
                     resourceCleanerFactory != null

@@ -20,8 +20,8 @@ package org.apache.flink.client.deployment.application.executors;
 
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.JobID;
-import org.apache.flink.client.cli.ClientOptions;
 import org.apache.flink.client.deployment.application.EmbeddedJobClient;
+import org.apache.flink.configuration.ClientOptions;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.execution.PipelineExecutor;
 import org.apache.flink.core.execution.PipelineExecutorFactory;

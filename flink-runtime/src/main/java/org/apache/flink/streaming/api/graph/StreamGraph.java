@@ -43,6 +43,7 @@ import org.apache.flink.core.execution.CheckpointingMode;
 import org.apache.flink.core.execution.JobStatusHook;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.core.memory.ManagedMemoryUseCase;
+import org.apache.flink.runtime.application.ApplicationID;
 import org.apache.flink.runtime.blob.PermanentBlobKey;
 import org.apache.flink.runtime.checkpoint.CheckpointRetentionPolicy;
 import org.apache.flink.runtime.checkpoint.MasterTriggerRestoreHook;
@@ -131,6 +132,8 @@ public class StreamGraph implements Pipeline, ExecutionPlan {
 
     private String jobName;
 
+    private ApplicationID applicationId;
+
     private JobID jobId;
 
     private final Configuration jobConfiguration;
@@ -208,6 +211,7 @@ public class StreamGraph implements Pipeline, ExecutionPlan {
         this.checkpointConfig = checkNotNull(checkpointConfig);
         this.savepointRestoreSettings = checkNotNull(savepointRestoreSettings);
         this.jobId = new JobID();
+        this.applicationId = new ApplicationID();
         this.jobName = "(unnamed job)";
 
         // create an empty new stream graph.
@@ -1168,16 +1172,27 @@ public class StreamGraph implements Pipeline, ExecutionPlan {
     /** Gets the assembled {@link JobGraph} with a random {@link JobID}. */
     @VisibleForTesting
     public JobGraph getJobGraph() {
-        return getJobGraph(Thread.currentThread().getContextClassLoader(), jobId);
+        return getJobGraph(Thread.currentThread().getContextClassLoader(), jobId, applicationId);
     }
 
     public JobGraph getJobGraph(ClassLoader userClassLoader) {
-        return getJobGraph(userClassLoader, jobId);
+        return getJobGraph(userClassLoader, jobId, applicationId);
     }
 
     /** Gets the assembled {@link JobGraph} with a specified {@link JobID}. */
     public JobGraph getJobGraph(ClassLoader userClassLoader, @Nullable JobID jobID) {
-        return StreamingJobGraphGenerator.createJobGraph(userClassLoader, this, jobID);
+        return getJobGraph(userClassLoader, jobID, null);
+    }
+
+    /**
+     * Gets the assembled {@link JobGraph} with a specified {@link JobID} and {@link ApplicationID}.
+     */
+    public JobGraph getJobGraph(
+            ClassLoader userClassLoader,
+            @Nullable JobID jobID,
+            @Nullable ApplicationID applicationID) {
+        return StreamingJobGraphGenerator.createJobGraph(
+                userClassLoader, this, jobID, applicationID);
     }
 
     public String getStreamingPlanAsJSON() {
@@ -1262,9 +1277,18 @@ public class StreamGraph implements Pipeline, ExecutionPlan {
         this.jobId = jobId;
     }
 
+    public void setApplicationId(ApplicationID applicationId) {
+        this.applicationId = applicationId;
+    }
+
     @Override
     public JobID getJobID() {
         return jobId;
+    }
+
+    @Override
+    public ApplicationID getApplicationID() {
+        return this.applicationId;
     }
 
     /**
@@ -1518,7 +1542,7 @@ public class StreamGraph implements Pipeline, ExecutionPlan {
 
     @Override
     public String toString() {
-        return "StreamGraph(jobId: " + jobId + ")";
+        return "StreamGraph(jobId: " + jobId + ", applicationId: " + applicationId + ")";
     }
 
     /**

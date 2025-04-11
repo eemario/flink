@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.flink.client.deployment.application;
+package org.apache.flink.runtime.client;
 
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;

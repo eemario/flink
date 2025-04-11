@@ -20,13 +20,17 @@ package org.apache.flink.runtime.webmonitor;
 
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.runtime.application.ApplicationID;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsSnapshot;
 import org.apache.flink.runtime.clusterframework.types.ResourceID;
 import org.apache.flink.runtime.jobmaster.JobResult;
 import org.apache.flink.runtime.messages.Acknowledge;
+import org.apache.flink.runtime.messages.webmonitor.ClusterApplicationsOverview;
 import org.apache.flink.runtime.messages.webmonitor.ClusterOverview;
 import org.apache.flink.runtime.messages.webmonitor.MultipleJobsDetails;
 import org.apache.flink.runtime.rest.messages.ThreadDumpInfo;
+import org.apache.flink.runtime.rest.messages.application.ApplicationDetailsInfo;
+import org.apache.flink.runtime.rpc.RpcTimeout;
 import org.apache.flink.runtime.scheduler.ExecutionGraphInfo;
 
 import java.time.Duration;
@@ -71,6 +75,12 @@ public class NonLeaderRetrievalRestfulGateway implements RestfulGateway {
     }
 
     @Override
+    public CompletableFuture<ApplicationDetailsInfo> requestApplication(
+            ApplicationID applicationId, @RpcTimeout Duration timeout) {
+        throw new UnsupportedOperationException(MESSAGE);
+    }
+
+    @Override
     public CompletableFuture<CheckpointStatsSnapshot> requestCheckpointStats(
             JobID jobId, Duration timeout) {
         throw new UnsupportedOperationException(MESSAGE);
@@ -88,6 +98,12 @@ public class NonLeaderRetrievalRestfulGateway implements RestfulGateway {
 
     @Override
     public CompletableFuture<ClusterOverview> requestClusterOverview(Duration timeout) {
+        throw new UnsupportedOperationException(MESSAGE);
+    }
+
+    @Override
+    public CompletableFuture<ClusterApplicationsOverview> requestClusterApplicationsOverview(
+            @RpcTimeout Duration timeout) {
         throw new UnsupportedOperationException(MESSAGE);
     }
 
