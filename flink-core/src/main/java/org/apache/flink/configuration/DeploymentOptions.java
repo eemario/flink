@@ -122,6 +122,16 @@ public class DeploymentOptions {
                                     + " When it is set to false, the application will finish after all jobs reach terminal states.");
 
     @Experimental
+    @Documentation.ExcludeFromDocumentation("Experimental")
+    public static final ConfigOption<Boolean> FAIL_APPLICATION_ON_JOB_RECOVERY =
+            ConfigOptions.key("execution.fail-application-on-job-recovery")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "When it is set to true, the application will fail when recovering jobs (which can only happen in HA mode)."
+                                    + " When it is set to false, the application will not fail automatically when recovering jobs, but the application status may be UNKNOWN.");
+
+    @Experimental
     public static final ConfigOption<List<String>> PROGRAM_CONFIG_WILDCARDS =
             ConfigOptions.key("execution.program-config.wildcards")
                     .stringType()

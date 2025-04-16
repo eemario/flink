@@ -69,6 +69,12 @@ public class NonLeaderRetrievalRestfulGateway implements RestfulGateway {
     }
 
     @Override
+    public CompletableFuture<Acknowledge> cancelApplication(
+            ApplicationID applicationId, Duration timeout) {
+        throw new UnsupportedOperationException(MESSAGE);
+    }
+
+    @Override
     public CompletableFuture<ExecutionGraphInfo> requestExecutionGraphInfo(
             JobID jobId, Duration timeout) {
         throw new UnsupportedOperationException(MESSAGE);

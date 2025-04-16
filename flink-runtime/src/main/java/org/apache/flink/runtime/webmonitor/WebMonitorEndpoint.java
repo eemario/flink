@@ -33,6 +33,7 @@ import org.apache.flink.runtime.rest.RestServerEndpoint;
 import org.apache.flink.runtime.rest.handler.AbstractRestHandler;
 import org.apache.flink.runtime.rest.handler.RestHandlerConfiguration;
 import org.apache.flink.runtime.rest.handler.RestHandlerSpecification;
+import org.apache.flink.runtime.rest.handler.application.ApplicationCancellationHandler;
 import org.apache.flink.runtime.rest.handler.application.ApplicationDetailsHandler;
 import org.apache.flink.runtime.rest.handler.cluster.ClusterApplicationsOverviewHandler;
 import org.apache.flink.runtime.rest.handler.cluster.ClusterConfigHandler;
@@ -109,6 +110,7 @@ import org.apache.flink.runtime.rest.handler.taskmanager.TaskManagerProfilingLis
 import org.apache.flink.runtime.rest.handler.taskmanager.TaskManagerStdoutFileHandler;
 import org.apache.flink.runtime.rest.handler.taskmanager.TaskManagerThreadDumpHandler;
 import org.apache.flink.runtime.rest.handler.taskmanager.TaskManagersHandler;
+import org.apache.flink.runtime.rest.messages.ApplicationCancellationHeaders;
 import org.apache.flink.runtime.rest.messages.ClusterApplicationsOverviewHeaders;
 import org.apache.flink.runtime.rest.messages.ClusterConfigurationInfoHeaders;
 import org.apache.flink.runtime.rest.messages.ClusterOverviewHeaders;
@@ -647,6 +649,13 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
                         JobVertexBackPressureHeaders.getInstance(),
                         metricFetcher);
 
+        final ApplicationCancellationHandler applicationCancellationHandler =
+                new ApplicationCancellationHandler(
+                        leaderRetriever,
+                        timeout,
+                        responseHeaders,
+                        ApplicationCancellationHeaders.getInstance());
+
         final JobCancellationHandler jobCancelTerminationHandler =
                 new JobCancellationHandler(
                         leaderRetriever,
@@ -898,6 +907,10 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
                         jobVertexFlameGraphHandler.getMessageHeaders(),
                         jobVertexFlameGraphHandler));
 
+        handlers.add(
+                Tuple2.of(
+                        applicationCancellationHandler.getMessageHeaders(),
+                        applicationCancellationHandler));
         handlers.add(
                 Tuple2.of(
                         jobCancelTerminationHandler.getMessageHeaders(),

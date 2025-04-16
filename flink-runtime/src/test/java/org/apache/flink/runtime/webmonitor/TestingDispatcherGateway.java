@@ -132,6 +132,7 @@ public final class TestingDispatcherGateway extends TestingRestfulGateway
             String address,
             String hostname,
             Function<JobID, CompletableFuture<Acknowledge>> cancelJobFunction,
+            Function<ApplicationID, CompletableFuture<Acknowledge>> cancelApplicationFunction,
             Function<JobID, CompletableFuture<ArchivedExecutionGraph>> requestJobFunction,
             Function<ApplicationID, CompletableFuture<ApplicationDetailsInfo>>
                     requestApplicationFunction,
@@ -194,6 +195,7 @@ public final class TestingDispatcherGateway extends TestingRestfulGateway
                 address,
                 hostname,
                 cancelJobFunction,
+                cancelApplicationFunction,
                 requestJobFunction,
                 requestApplicationFunction,
                 requestExecutionGraphInfoFunction,
@@ -408,6 +410,7 @@ public final class TestingDispatcherGateway extends TestingRestfulGateway
                     address,
                     hostname,
                     cancelJobFunction,
+                    cancelApplicationFunction,
                     requestJobFunction,
                     requestApplicationFunction,
                     requestExecutionGraphInfoFunction,

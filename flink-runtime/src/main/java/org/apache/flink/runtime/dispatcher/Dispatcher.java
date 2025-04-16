@@ -74,6 +74,7 @@ import org.apache.flink.runtime.jobmaster.JobResult;
 import org.apache.flink.runtime.jobmaster.factories.DefaultJobManagerJobMetricGroupFactory;
 import org.apache.flink.runtime.messages.Acknowledge;
 import org.apache.flink.runtime.messages.FlinkApplicationNotFoundException;
+import org.apache.flink.runtime.messages.FlinkApplicationTerminatedWithoutCancellationException;
 import org.apache.flink.runtime.messages.FlinkJobNotFoundException;
 import org.apache.flink.runtime.messages.FlinkJobTerminatedWithoutCancellationException;
 import org.apache.flink.runtime.messages.webmonitor.ClusterApplicationsOverview;
@@ -141,6 +142,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static org.apache.flink.configuration.DeploymentOptions.FAIL_APPLICATION_ON_JOB_RECOVERY;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
@@ -229,7 +231,6 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
     private final Map<ApplicationID, AbstractApplication> applications = new HashMap<>();
 
-    // TODO application status lost
     private final Map<ApplicationID, Set<JobID>> recoveredApplications = new HashMap<>();
 
     @Nullable private final AbstractApplication bootstrapApplication;
@@ -452,7 +453,17 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
     private void runRecoveredJob(final ExecutionPlan recoveredJob) {
         checkNotNull(recoveredJob);
 
-        tryAddJobToApplication(recoveredJob.getJobID(), recoveredJob.getApplicationID());
+        if (configuration.get(FAIL_APPLICATION_ON_JOB_RECOVERY)) {
+            onFatalError(
+                    new DispatcherException(
+                            String.format(
+                                    "Could not start recovered job %s.", recoveredJob.getJobID()),
+                            new IllegalStateException(
+                                    "Application should not be started with recovered jobs when enabling "
+                                            + FAIL_APPLICATION_ON_JOB_RECOVERY.key())));
+        }
+
+        tryAddJobToRecoveredApplication(recoveredJob.getJobID(), recoveredJob.getApplicationID());
 
         initJobClientExpiredTime(recoveredJob);
 
@@ -468,7 +479,7 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
         }
     }
 
-    private void tryAddJobToApplication(JobID jobId, ApplicationID applicationId) {
+    private void tryAddJobToRecoveredApplication(JobID jobId, ApplicationID applicationId) {
         boolean notExisting =
                 recoveredApplications
                         .computeIfAbsent(applicationId, ignored -> new HashSet<>())
@@ -673,6 +684,13 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                                         DuplicateApplicationSubmissionException.of(applicationId));
                             }
                             applications.put(applicationId, application);
+                            if (recoveredApplications.containsKey(applicationId)) {
+                                recoveredApplications
+                                        .get(applicationId)
+                                        .forEach(application::addJob);
+                                recoveredApplications.remove(applicationId);
+                            }
+
                             return application;
                         },
                         getMainThreadExecutor())
@@ -945,6 +963,71 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
     }
 
     @Override
+    public CompletableFuture<Acknowledge> cancelApplication(
+            ApplicationID applicationId, Duration timeout) {
+        final AbstractApplication application;
+        final Set<JobID> jobIds;
+        if (!applications.containsKey(applicationId)) {
+            if (!recoveredApplications.containsKey(applicationId)) {
+                return FutureUtils.completedExceptionally(
+                        new FlinkApplicationNotFoundException(applicationId));
+            }
+            application = null;
+            jobIds = recoveredApplications.get(applicationId);
+        } else {
+            application = applications.get(applicationId);
+            jobIds = application.getJobs();
+        }
+
+        if (application != null) {
+            final org.apache.flink.runtime.application.ApplicationStatus applicationStatus =
+                    application.getApplicationStatus();
+            if (applicationStatus
+                    == org.apache.flink.runtime.application.ApplicationStatus.CANCELED) {
+                return CompletableFuture.completedFuture(Acknowledge.get());
+            } else if (applicationStatus
+                            == org.apache.flink.runtime.application.ApplicationStatus.FAILED
+                    || applicationStatus
+                            == org.apache.flink.runtime.application.ApplicationStatus.FINISHED) {
+                return FutureUtils.completedExceptionally(
+                        new FlinkApplicationTerminatedWithoutCancellationException(
+                                applicationId, applicationStatus));
+            }
+
+            try {
+                application.cancel();
+            } catch (Exception e) {
+                log.warn("Exception during application cancellation: ", e);
+            }
+        }
+
+        List<CompletableFuture<Acknowledge>> jobCancellationFutures =
+                jobIds.stream()
+                        .map(jobId -> cancelRunningJob(jobId, timeout))
+                        .collect(Collectors.toList());
+
+        return FutureUtils.completeAll(jobCancellationFutures)
+                .thenApply(ignored -> Acknowledge.get());
+    }
+
+    private CompletableFuture<Acknowledge> cancelRunningJob(JobID jobId, Duration timeout) {
+        Optional<JobManagerRunner> maybeJob = getJobManagerRunner(jobId);
+
+        if (maybeJob.isPresent()) {
+            return maybeJob.get().cancel(timeout);
+        }
+
+        final ExecutionGraphInfo executionGraphInfo = executionGraphInfoStore.get(jobId);
+        if (executionGraphInfo != null) {
+            final JobStatus jobStatus = executionGraphInfo.getArchivedExecutionGraph().getState();
+            log.info("Job {} can not be canceled because it is in state {}", jobId, jobStatus);
+            return CompletableFuture.completedFuture(Acknowledge.get());
+        }
+
+        return FutureUtils.completedExceptionally(new FlinkJobNotFoundException(jobId));
+    }
+
+    @Override
     public CompletableFuture<ClusterOverview> requestClusterOverview(Duration timeout) {
         CompletableFuture<ResourceOverview> taskManagerOverviewFuture =
                 runResourceManagerCommand(
@@ -982,28 +1065,21 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                                         requestApplication(abstractApplication, timeout))
                         .collect(Collectors.toList());
 
-        CompletableFuture<List<ApplicationDetailsInfo>> allApplicationDetailsFuture =
-                CompletableFuture.allOf(applicationDetailsFutures.toArray(new CompletableFuture[0]))
-                        .thenApply(
-                                v ->
-                                        applicationDetailsFutures.stream()
-                                                .map(CompletableFuture::join)
-                                                .collect(Collectors.toList()));
-
         final Map<Status, Long> timestamps =
                 CollectionUtil.newHashMapWithExpectedSize(Status.values().length);
 
         for (Status status : Status.values()) {
             timestamps.put(status, statusTimestamps[status.ordinal()]);
         }
-        return allApplicationDetailsFuture.thenApply(
-                applicationDetailsList ->
-                        new ClusterApplicationsOverview(
-                                new ClusterApplicationsOverview.ClusterInfo(
-                                        dispatcherMode,
-                                        status,
-                                        timestamps,
-                                        applicationDetailsList)));
+        return FutureUtils.combineAll(applicationDetailsFutures)
+                .thenApply(
+                        applicationDetailsList ->
+                                new ClusterApplicationsOverview(
+                                        new ClusterApplicationsOverview.ClusterInfo(
+                                                dispatcherMode,
+                                                status,
+                                                timestamps,
+                                                applicationDetailsList)));
     }
 
     @Override
@@ -1073,15 +1149,22 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
     @Override
     public CompletableFuture<ApplicationDetailsInfo> requestApplication(
             ApplicationID applicationId, @RpcTimeout Duration timeout) {
+        final AbstractApplication application;
+        final Set<JobID> jobIds;
         if (!applications.containsKey(applicationId)) {
-            return FutureUtils.completedExceptionally(
-                    new FlinkApplicationNotFoundException(applicationId));
+            if (!recoveredApplications.containsKey(applicationId)) {
+                return FutureUtils.completedExceptionally(
+                        new FlinkApplicationNotFoundException(applicationId));
+            }
+            application = null;
+            jobIds = recoveredApplications.get(applicationId);
+        } else {
+            application = applications.get(applicationId);
+            jobIds = application.getJobs();
         }
 
-        AbstractApplication application = applications.get(applicationId);
-
         List<CompletableFuture<JobIdsWithStatusOverview.JobIdWithStatus>> jobStatusFutures =
-                application.getJobs().stream()
+                jobIds.stream()
                         .map(
                                 jobId ->
                                         requestJobStatus(jobId, timeout)
@@ -1092,21 +1175,19 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                                                                         jobId, status)))
                         .collect(Collectors.toList());
 
-        CompletableFuture<List<JobIdsWithStatusOverview.JobIdWithStatus>> allJobStatusFuture =
-                CompletableFuture.allOf(jobStatusFutures.toArray(new CompletableFuture[0]))
-                        .thenApply(
-                                v ->
-                                        jobStatusFutures.stream()
-                                                .map(CompletableFuture::join)
-                                                .collect(Collectors.toList()));
-
-        return allJobStatusFuture.thenApply(
-                jobIdWithStatusList ->
-                        new ApplicationDetailsInfo(
-                                applicationId,
-                                application.getApplicationStatus(),
-                                application.getStatusTimestamps(),
-                                jobIdWithStatusList));
+        return FutureUtils.combineAll(jobStatusFutures)
+                .thenApply(
+                        jobIdsWithStatus ->
+                                new ApplicationDetailsInfo(
+                                        applicationId,
+                                        application == null
+                                                ? org.apache.flink.runtime.application
+                                                        .ApplicationStatus.UNKNOWN
+                                                : application.getApplicationStatus(),
+                                        application == null
+                                                ? Collections.emptyMap()
+                                                : application.getStatusTimestamps(),
+                                        jobIdsWithStatus));
     }
 
     private ExecutionGraphInfo getExecutionGraphInfoFromStore(Throwable t, JobID jobId) {

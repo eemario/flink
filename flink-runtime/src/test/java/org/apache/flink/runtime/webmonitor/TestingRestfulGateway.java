@@ -58,6 +58,9 @@ import java.util.function.Supplier;
 /** Testing implementation of the {@link RestfulGateway}. */
 public class TestingRestfulGateway implements RestfulGateway {
 
+    static final Function<ApplicationID, CompletableFuture<Acknowledge>>
+            DEFAULT_CANCEL_APPLICATION_FUNCTION =
+                    applicationId -> CompletableFuture.completedFuture(Acknowledge.get());
     static final Function<JobID, CompletableFuture<Acknowledge>> DEFAULT_CANCEL_JOB_FUNCTION =
             jobId -> CompletableFuture.completedFuture(Acknowledge.get());
     static final Function<JobID, CompletableFuture<JobResult>> DEFAULT_REQUEST_JOB_RESULT_FUNCTION =
@@ -164,6 +167,8 @@ public class TestingRestfulGateway implements RestfulGateway {
 
     protected Function<JobID, CompletableFuture<Acknowledge>> cancelJobFunction;
 
+    protected Function<ApplicationID, CompletableFuture<Acknowledge>> cancelApplicationFunction;
+
     protected Supplier<CompletableFuture<Acknowledge>> clusterShutdownSupplier;
 
     protected Function<JobID, CompletableFuture<ArchivedExecutionGraph>> requestJobFunction;
@@ -232,6 +237,7 @@ public class TestingRestfulGateway implements RestfulGateway {
                 LOCALHOST,
                 LOCALHOST,
                 DEFAULT_CANCEL_JOB_FUNCTION,
+                DEFAULT_CANCEL_APPLICATION_FUNCTION,
                 DEFAULT_REQUEST_JOB_FUNCTION,
                 DEFAULT_REQUEST_APPLICATION_FUNCTION,
                 DEFAULT_REQUEST_EXECUTION_GRAPH_INFO,
@@ -257,6 +263,7 @@ public class TestingRestfulGateway implements RestfulGateway {
             String address,
             String hostname,
             Function<JobID, CompletableFuture<Acknowledge>> cancelJobFunction,
+            Function<ApplicationID, CompletableFuture<Acknowledge>> cancelApplicationFunction,
             Function<JobID, CompletableFuture<ArchivedExecutionGraph>> requestJobFunction,
             Function<ApplicationID, CompletableFuture<ApplicationDetailsInfo>>
                     requestApplicationFunction,
@@ -303,6 +310,7 @@ public class TestingRestfulGateway implements RestfulGateway {
         this.address = address;
         this.hostname = hostname;
         this.cancelJobFunction = cancelJobFunction;
+        this.cancelApplicationFunction = cancelApplicationFunction;
         this.requestJobFunction = requestJobFunction;
         this.requestApplicationFunction = requestApplicationFunction;
         this.requestExecutionGraphInfoFunction = requestExecutionGraphInfoFunction;
@@ -331,6 +339,12 @@ public class TestingRestfulGateway implements RestfulGateway {
     @Override
     public CompletableFuture<Acknowledge> cancelJob(JobID jobId, Duration timeout) {
         return cancelJobFunction.apply(jobId);
+    }
+
+    @Override
+    public CompletableFuture<Acknowledge> cancelApplication(
+            ApplicationID applicationId, Duration timeout) {
+        return cancelApplicationFunction.apply(applicationId);
     }
 
     @Override
@@ -473,6 +487,7 @@ public class TestingRestfulGateway implements RestfulGateway {
         protected String address = LOCALHOST;
         protected String hostname = LOCALHOST;
         protected Function<JobID, CompletableFuture<Acknowledge>> cancelJobFunction;
+        protected Function<ApplicationID, CompletableFuture<Acknowledge>> cancelApplicationFunction;
         protected Function<JobID, CompletableFuture<ArchivedExecutionGraph>> requestJobFunction;
         protected Function<ApplicationID, CompletableFuture<ApplicationDetailsInfo>>
                 requestApplicationFunction;
@@ -522,6 +537,7 @@ public class TestingRestfulGateway implements RestfulGateway {
 
         protected AbstractBuilder() {
             cancelJobFunction = DEFAULT_CANCEL_JOB_FUNCTION;
+            cancelApplicationFunction = DEFAULT_CANCEL_APPLICATION_FUNCTION;
             requestJobFunction = DEFAULT_REQUEST_JOB_FUNCTION;
             requestApplicationFunction = DEFAULT_REQUEST_APPLICATION_FUNCTION;
             requestExecutionGraphInfoFunction = DEFAULT_REQUEST_EXECUTION_GRAPH_INFO;
@@ -706,6 +722,7 @@ public class TestingRestfulGateway implements RestfulGateway {
                     address,
                     hostname,
                     cancelJobFunction,
+                    cancelApplicationFunction,
                     requestJobFunction,
                     requestApplicationFunction,
                     requestExecutionGraphInfoFunction,

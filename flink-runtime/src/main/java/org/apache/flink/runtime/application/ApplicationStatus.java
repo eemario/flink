@@ -29,7 +29,8 @@ public enum ApplicationStatus {
     RUNNING,
     FINISHED,
     FAILED,
-    CANCELED;
+    CANCELED,
+    UNKNOWN;
 
     // ------------------------------------------------------------------------
 
