@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.webmonitor;
 
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -32,7 +33,9 @@ import org.apache.flink.runtime.dispatcher.TriggerSavepointMode;
 import org.apache.flink.runtime.executiongraph.ArchivedExecutionGraph;
 import org.apache.flink.runtime.jobmaster.JobResult;
 import org.apache.flink.runtime.messages.Acknowledge;
+import org.apache.flink.runtime.messages.webmonitor.ApplicationDetailsInfo;
 import org.apache.flink.runtime.messages.webmonitor.ClusterOverview;
+import org.apache.flink.runtime.messages.webmonitor.MultipleApplicationsDetails;
 import org.apache.flink.runtime.messages.webmonitor.MultipleJobsDetails;
 import org.apache.flink.runtime.operators.coordination.CoordinationRequest;
 import org.apache.flink.runtime.operators.coordination.CoordinationResponse;
@@ -129,7 +132,10 @@ public final class TestingDispatcherGateway extends TestingRestfulGateway
             String address,
             String hostname,
             Function<JobID, CompletableFuture<Acknowledge>> cancelJobFunction,
+            Function<ApplicationID, CompletableFuture<Acknowledge>> cancelApplicationFunction,
             Function<JobID, CompletableFuture<ArchivedExecutionGraph>> requestJobFunction,
+            Function<ApplicationID, CompletableFuture<ApplicationDetailsInfo>>
+                    requestApplicationFunction,
             Function<JobID, CompletableFuture<ExecutionGraphInfo>>
                     requestExecutionGraphInfoFunction,
             Function<JobID, CompletableFuture<CheckpointStatsSnapshot>>
@@ -137,6 +143,8 @@ public final class TestingDispatcherGateway extends TestingRestfulGateway
             Function<JobID, CompletableFuture<JobResult>> requestJobResultFunction,
             Function<JobID, CompletableFuture<JobStatus>> requestJobStatusFunction,
             Supplier<CompletableFuture<MultipleJobsDetails>> requestMultipleJobDetailsSupplier,
+            Supplier<CompletableFuture<MultipleApplicationsDetails>>
+                    requestMultipleApplicationDetailsSupplier,
             Supplier<CompletableFuture<ClusterOverview>> requestClusterOverviewSupplier,
             Supplier<CompletableFuture<Collection<String>>>
                     requestMetricQueryServiceAddressesSupplier,
@@ -187,12 +195,15 @@ public final class TestingDispatcherGateway extends TestingRestfulGateway
                 address,
                 hostname,
                 cancelJobFunction,
+                cancelApplicationFunction,
                 requestJobFunction,
+                requestApplicationFunction,
                 requestExecutionGraphInfoFunction,
                 requestCheckpointStatsSnapshotFunction,
                 requestJobResultFunction,
                 requestJobStatusFunction,
                 requestMultipleJobDetailsSupplier,
+                requestMultipleApplicationDetailsSupplier,
                 requestClusterOverviewSupplier,
                 requestMetricQueryServiceAddressesSupplier,
                 requestTaskManagerMetricQueryServiceGatewaysSupplier,
@@ -399,12 +410,15 @@ public final class TestingDispatcherGateway extends TestingRestfulGateway
                     address,
                     hostname,
                     cancelJobFunction,
+                    cancelApplicationFunction,
                     requestJobFunction,
+                    requestApplicationFunction,
                     requestExecutionGraphInfoFunction,
                     requestCheckpointStatsSnapshotFunction,
                     requestJobResultFunction,
                     requestJobStatusFunction,
                     requestMultipleJobDetailsSupplier,
+                    requestMultipleApplicationDetailsSupplier,
                     requestClusterOverviewSupplier,
                     requestMetricQueryServiceGatewaysSupplier,
                     requestTaskManagerMetricQueryServiceGatewaysSupplier,
