@@ -19,6 +19,7 @@
 package org.apache.flink.runtime.dispatcher;
 
 import org.apache.flink.api.common.ApplicationID;
+import org.apache.flink.api.common.ApplicationState;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.api.common.operators.ResourceSpec;
@@ -130,8 +131,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.UUID;
@@ -152,6 +155,10 @@ import java.util.stream.Stream;
 import static org.apache.flink.core.testutils.FlinkAssertions.assertThatFuture;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 
 /** Test for the {@link Dispatcher} component. */
 public class DispatcherTest extends AbstractDispatcherTest {
@@ -540,10 +547,13 @@ public class DispatcherTest extends AbstractDispatcherTest {
                                 new FinishingJobManagerRunnerFactory(
                                         jobTerminationFuture, () -> {}))
                         .setHistoryServerArchivist(
-                                executionGraphInfo -> {
-                                    archiveAttemptFuture.complete(null);
-                                    return CompletableFuture.completedFuture(null);
-                                })
+                                TestingHistoryServerArchivist.builder()
+                                        .setArchiveExecutionGraphFunction(
+                                                (executionGraphInfo, applicationId) -> {
+                                                    archiveAttemptFuture.complete(null);
+                                                    return CompletableFuture.completedFuture(null);
+                                                })
+                                        .build())
                         .build(rpcService);
         dispatcher.start();
         jobMasterLeaderElection.isLeader(UUID.randomUUID());
@@ -567,6 +577,78 @@ public class DispatcherTest extends AbstractDispatcherTest {
                 .isSameAs(JobStatus.SUSPENDED);
 
         assertThat(archiveAttemptFuture).isNotDone();
+    }
+
+    @Test
+    public void testApplicationStatusChange_ArchiveNotCalledForNonTerminalStatus()
+            throws Exception {
+        final CompletableFuture<Void> archiveApplicationFuture = new CompletableFuture<>();
+        dispatcher =
+                createTestingDispatcherBuilder()
+                        .setHistoryServerArchivist(
+                                TestingHistoryServerArchivist.builder()
+                                        .setArchiveApplicationFunction(
+                                                applicationDetailsInfo -> {
+                                                    archiveApplicationFuture.complete(null);
+                                                    return CompletableFuture.completedFuture(null);
+                                                })
+                                        .build())
+                        .build(rpcService);
+        dispatcher.start();
+        ApplicationID applicationId = mockApplicationStatusChange(ApplicationState.RUNNING);
+        // verify that archive application is not called
+        assertFalse(archiveApplicationFuture.isDone());
+        assertNull(dispatcher.getApplicationArchivingFuture(applicationId));
+    }
+
+    @Test
+    public void testApplicationStatusChange_ArchiveCalledForTerminalStatus() throws Exception {
+        final CompletableFuture<ApplicationID> archiveApplicationFuture = new CompletableFuture<>();
+        dispatcher =
+                createTestingDispatcherBuilder()
+                        .setHistoryServerArchivist(
+                                TestingHistoryServerArchivist.builder()
+                                        .setArchiveApplicationFunction(
+                                                applicationDetailsInfo -> {
+                                                    archiveApplicationFuture.complete(
+                                                            applicationDetailsInfo
+                                                                    .getApplicationId());
+                                                    return CompletableFuture.completedFuture(null);
+                                                })
+                                        .build())
+                        .build(rpcService);
+        dispatcher.start();
+        final ApplicationID applicationId = mockApplicationStatusChange(ApplicationState.FINISHED);
+        // verify that archive application is called with the application id
+        assertEquals(applicationId, archiveApplicationFuture.get());
+        dispatcher
+                .getApplicationArchivingFuture(applicationId)
+                .get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+    }
+
+    @Test
+    public void testApplicationStatusChange_ThrowsIfDuplicateTerminalStatus() throws Exception {
+        dispatcher = createTestingDispatcherBuilder().build(rpcService);
+        dispatcher.start();
+        final ApplicationID applicationId = mockApplicationStatusChange(ApplicationState.FINISHED);
+        assertThrows(
+                IllegalStateException.class,
+                () ->
+                        dispatcher.notifyApplicationStatusChange(
+                                applicationId, ApplicationState.FAILED));
+    }
+
+    private ApplicationID mockApplicationStatusChange(ApplicationState targetState) {
+        final ApplicationID applicationId = new ApplicationID();
+        dispatcher
+                .getApplications()
+                .put(
+                        applicationId,
+                        new TestingApplication(
+                                applicationId,
+                                ignored -> CompletableFuture.completedFuture(Acknowledge.get())));
+        dispatcher.notifyApplicationStatusChange(applicationId, targetState);
+        return applicationId;
     }
 
     @Test
@@ -976,6 +1058,10 @@ public class DispatcherTest extends AbstractDispatcherTest {
 
         assertThat(application.getJobs().size()).isEqualTo(1);
         assertThat(application.getJobs()).contains(jobGraph.getJobID());
+
+        Map<JobID, ApplicationID> expectedJobIdsToApplicationIds = new HashMap<>();
+        expectedJobIdsToApplicationIds.put(jobGraph.getJobID(), applicationId);
+        assertEquals(expectedJobIdsToApplicationIds, dispatcher.getJobIdsToApplicationIds());
     }
 
     @Test
@@ -1101,6 +1187,33 @@ public class DispatcherTest extends AbstractDispatcherTest {
                 .isInstanceOf(TimeoutException.class);
 
         jobTerminationFuture.complete(null);
+
+        dispatcher.getShutDownFuture().get();
+    }
+
+    @Test
+    public void testShutDownFutureCompletesAfterApplicationArchivingFutures() throws Exception {
+        final CompletableFuture<Acknowledge> archiveApplicationFuture = new CompletableFuture<>();
+        dispatcher =
+                createTestingDispatcherBuilder()
+                        .setHistoryServerArchivist(
+                                TestingHistoryServerArchivist.builder()
+                                        .setArchiveApplicationFunction(
+                                                applicationDetailsInfo -> archiveApplicationFuture)
+                                        .build())
+                        .build(rpcService);
+        dispatcher.start();
+
+        mockApplicationStatusChange(ApplicationState.FINISHED);
+
+        final DispatcherGateway dispatcherGateway =
+                dispatcher.getSelfGateway(DispatcherGateway.class);
+
+        dispatcherGateway.shutDownCluster(ApplicationStatus.SUCCEEDED).get();
+        assertThatThrownBy(() -> dispatcher.getShutDownFuture().get(100L, TimeUnit.MILLISECONDS))
+                .isInstanceOf(TimeoutException.class);
+
+        archiveApplicationFuture.complete(null);
 
         dispatcher.getShutDownFuture().get();
     }
@@ -1323,15 +1436,15 @@ public class DispatcherTest extends AbstractDispatcherTest {
                         new ExpectedJobIdJobManagerRunnerFactory(jobId));
         DispatcherGateway dispatcherGateway = dispatcher.getSelfGateway(DispatcherGateway.class);
 
-        Assert.assertEquals(jobGraph.findVertexByID(v1.getID()).getParallelism(), 1);
-        Assert.assertEquals(jobGraph.findVertexByID(v2.getID()).getParallelism(), 2);
-        Assert.assertEquals(jobGraph.findVertexByID(v3.getID()).getParallelism(), 3);
+        assertEquals(jobGraph.findVertexByID(v1.getID()).getParallelism(), 1);
+        assertEquals(jobGraph.findVertexByID(v2.getID()).getParallelism(), 2);
+        assertEquals(jobGraph.findVertexByID(v3.getID()).getParallelism(), 3);
 
         dispatcherGateway.submitJob(jobGraph, TIMEOUT).get();
 
-        Assert.assertEquals(jobGraph.findVertexByID(v1.getID()).getParallelism(), 10);
-        Assert.assertEquals(jobGraph.findVertexByID(v2.getID()).getParallelism(), 2);
-        Assert.assertEquals(jobGraph.findVertexByID(v3.getID()).getParallelism(), 42);
+        assertEquals(jobGraph.findVertexByID(v1.getID()).getParallelism(), 10);
+        assertEquals(jobGraph.findVertexByID(v2.getID()).getParallelism(), 2);
+        assertEquals(jobGraph.findVertexByID(v3.getID()).getParallelism(), 42);
     }
 
     private JobManagerRunner runningJobManagerRunnerWithJobStatus(

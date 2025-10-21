@@ -31,10 +31,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -51,6 +53,8 @@ public abstract class AbstractApplication implements Serializable {
     private final ApplicationID applicationId;
 
     private ApplicationState applicationState;
+
+    private final List<ApplicationStatusListener> statusListeners = new ArrayList<>();
 
     /**
      * Timestamps (in milliseconds as returned by {@code System.currentTimeMillis()}) when the
@@ -125,6 +129,15 @@ public abstract class AbstractApplication implements Serializable {
         return jobs.add(jobId);
     }
 
+    /**
+     * Registers a status listener.
+     *
+     * <p>This method is not thread-safe and should not be called concurrently.
+     */
+    public void registerStatusListener(ApplicationStatusListener listener) {
+        statusListeners.add(listener);
+    }
+
     public ApplicationState getApplicationStatus() {
         return applicationState;
     }
@@ -196,6 +209,8 @@ public abstract class AbstractApplication implements Serializable {
                 targetState);
         this.statusTimestamps[targetState.ordinal()] = System.currentTimeMillis();
         this.applicationState = targetState;
+        statusListeners.forEach(
+                listener -> listener.notifyApplicationStatusChange(applicationId, targetState));
     }
 
     private void validateTransition(ApplicationState targetState) {

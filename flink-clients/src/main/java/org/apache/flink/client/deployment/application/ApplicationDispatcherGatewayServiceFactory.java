@@ -96,7 +96,7 @@ public class ApplicationDispatcherGatewayServiceFactory
 
         final boolean allowExecuteMultipleJobs =
                 ApplicationJobUtils.allowExecuteMultipleJobs(configuration);
-        ApplicationJobUtils.maybeFixJobIdAndApplicationId(configuration);
+        ApplicationJobUtils.maybeFixIds(configuration);
         final ApplicationID applicationId =
                 configuration
                         .getOptional(ApplicationOptionsInternal.FIXED_APPLICATION_ID)

@@ -33,12 +33,14 @@ import org.apache.flink.configuration.ConfigOptions;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.HighAvailabilityOptions;
 import org.apache.flink.configuration.PipelineOptions;
+import org.apache.flink.configuration.RpcOptions;
 import org.apache.flink.configuration.WebOptions;
 import org.apache.flink.core.execution.CheckpointType;
 import org.apache.flink.core.execution.SavepointFormatType;
 import org.apache.flink.core.failure.FailureEnricher;
 import org.apache.flink.metrics.MetricGroup;
 import org.apache.flink.runtime.application.AbstractApplication;
+import org.apache.flink.runtime.application.ApplicationStatusListener;
 import org.apache.flink.runtime.blob.BlobServer;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsSnapshot;
 import org.apache.flink.runtime.checkpoint.Checkpoints;
@@ -149,7 +151,7 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
  * case of a master failure. Furthermore, it knows about the state of the Flink session cluster.
  */
 public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
-        implements DispatcherGateway {
+        implements DispatcherGateway, ApplicationStatusListener {
 
     @VisibleForTesting @Internal
     public static final ConfigOption<Duration> CLIENT_ALIVENESS_CHECK_DURATION =
@@ -223,7 +225,12 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
     private final Map<ApplicationID, AbstractApplication> applications = new HashMap<>();
 
+    private final Map<JobID, ApplicationID> jobIdsToApplicationIds = new HashMap<>();
+
     private final Map<ApplicationID, Set<JobID>> recoveredApplicationJobIds = new HashMap<>();
+
+    private final Map<ApplicationID, CompletableFuture<?>> applicationArchivingFutures =
+            new HashMap<>();
 
     /** Enum to distinguish between initial job submission and re-submission for recovery. */
     protected enum ExecutionType {
@@ -620,11 +627,38 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
         if (jobs != null) {
             jobs.forEach(application::addJob);
         }
+        application.registerStatusListener(this);
         return application.execute(
                 getSelfGateway(DispatcherGateway.class),
                 getRpcService().getScheduledExecutor(),
                 getMainThreadExecutor(),
                 this::onFatalError);
+    }
+
+    @Override
+    public void notifyApplicationStatusChange(
+            ApplicationID applicationId, ApplicationState newStatus) {
+        if (newStatus.isTerminalState()) {
+            Preconditions.checkState(
+                    !applicationArchivingFutures.containsKey(applicationId),
+                    "The application (" + applicationId + ") has already been archived.");
+            log.info(
+                    "Archiving application ({}) with terminal state {}.", applicationId, newStatus);
+            CompletableFuture<?> applicationArchivingFuture =
+                    requestApplication(
+                                    applicationId,
+                                    configuration.get(RpcOptions.ASK_TIMEOUT_DURATION))
+                            .thenCompose(historyServerArchivist::archiveApplication)
+                            .exceptionally(
+                                    throwable -> {
+                                        log.info(
+                                                "Could not archive completed application ({}) to the history server.",
+                                                applicationId,
+                                                throwable);
+                                        return null;
+                                    });
+            applicationArchivingFutures.put(applicationId, applicationArchivingFuture);
+        }
     }
 
     @VisibleForTesting
@@ -633,8 +667,18 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
     }
 
     @VisibleForTesting
+    Map<JobID, ApplicationID> getJobIdsToApplicationIds() {
+        return jobIdsToApplicationIds;
+    }
+
+    @VisibleForTesting
     private Map<ApplicationID, Set<JobID>> getRecoveredApplicationJobIds() {
         return recoveredApplicationJobIds;
+    }
+
+    @VisibleForTesting
+    CompletableFuture<?> getApplicationArchivingFuture(ApplicationID applicationId) {
+        return applicationArchivingFutures.get(applicationId);
     }
 
     /**
@@ -660,6 +704,7 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
         if (applications.containsKey(applicationId)) {
             applications.get(applicationId).addJob(jobId);
+            jobIdsToApplicationIds.put(jobId, applicationId);
         } else {
             log.warn(
                     "Application ({}) for job '{}' ({}) not found.", applicationId, jobName, jobId);
@@ -1315,7 +1360,11 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                         : CompletableFuture.completedFuture(null);
 
         FutureUtils.runAfterwards(
-                allJobsTerminationFuture, () -> shutDownFuture.complete(applicationStatus));
+                allJobsTerminationFuture,
+                () ->
+                        FutureUtils.runAfterwards(
+                                FutureUtils.completeAll(applicationArchivingFutures.values()),
+                                () -> shutDownFuture.complete(applicationStatus)));
         return CompletableFuture.completedFuture(Acknowledge.get());
     }
 
@@ -1698,7 +1747,9 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
             ExecutionGraphInfo executionGraphInfo) {
 
         return historyServerArchivist
-                .archiveExecutionGraph(executionGraphInfo)
+                .archiveExecutionGraph(
+                        executionGraphInfo,
+                        jobIdsToApplicationIds.get(executionGraphInfo.getJobId()))
                 .handleAsync(
                         (Acknowledge ignored, Throwable throwable) -> {
                             if (throwable != null) {

@@ -28,6 +28,7 @@ import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.annotatio
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.annotation.JsonSerialize;
 
 import java.io.Serializable;
+import java.util.HashMap;
 import java.util.Map;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
@@ -166,5 +167,25 @@ public class ApplicationDetails implements Serializable {
                 + ", jobInfo="
                 + jobInfo
                 + '}';
+    }
+
+    public static ApplicationDetails fromApplicationDetailsInfo(
+            ApplicationDetailsInfo applicationDetailsInfo) {
+        Map<String, Integer> jobInfo = new HashMap<>();
+        applicationDetailsInfo
+                .getJobs()
+                .forEach(
+                        job ->
+                                jobInfo.compute(
+                                        job.getStatus().name(),
+                                        (key, oldValue) -> (oldValue == null ? 1 : oldValue + 1)));
+        return new ApplicationDetails(
+                applicationDetailsInfo.getApplicationId(),
+                applicationDetailsInfo.getApplicationName(),
+                applicationDetailsInfo.getStartTime(),
+                applicationDetailsInfo.getEndTime(),
+                applicationDetailsInfo.getDuration(),
+                applicationDetailsInfo.getApplicationStatus(),
+                jobInfo);
     }
 }
