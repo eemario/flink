@@ -184,7 +184,7 @@ public class EmbeddedExecutor implements PipelineExecutor {
                         });
     }
 
-    private static CompletableFuture<JobID> submitJob(
+    protected CompletableFuture<JobID> submitJob(
             final Configuration configuration,
             final DispatcherGateway dispatcherGateway,
             final StreamGraph streamGraph,

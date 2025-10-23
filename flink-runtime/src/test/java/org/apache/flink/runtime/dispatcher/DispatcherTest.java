@@ -45,6 +45,7 @@ import org.apache.flink.runtime.dispatcher.cleanup.TestingCleanupRunnerFactory;
 import org.apache.flink.runtime.execution.librarycache.LibraryCacheManager;
 import org.apache.flink.runtime.executiongraph.ArchivedExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ErrorInfo;
+import org.apache.flink.runtime.executiongraph.JobStatusListener;
 import org.apache.flink.runtime.heartbeat.HeartbeatServices;
 import org.apache.flink.runtime.highavailability.HighAvailabilityServices;
 import org.apache.flink.runtime.highavailability.JobResultEntry;
@@ -1875,6 +1876,7 @@ public class DispatcherTest extends AbstractDispatcherTest {
                 JobManagerJobMetricGroupFactory jobManagerJobMetricGroupFactory,
                 FatalErrorHandler fatalErrorHandler,
                 Collection<FailureEnricher> failureEnricher,
+                JobStatusListener singleJobApplication,
                 long initializationTimestamp)
                 throws Exception {
             assertThat(graph.getJobID()).isEqualTo(expectedJobId);
@@ -1981,6 +1983,7 @@ public class DispatcherTest extends AbstractDispatcherTest {
                 JobManagerJobMetricGroupFactory jobManagerJobMetricGroupFactory,
                 FatalErrorHandler fatalErrorHandler,
                 Collection<FailureEnricher> failureEnrichers,
+                JobStatusListener singleJobApplication,
                 long initializationTimestamp)
                 throws Exception {
 
@@ -2041,6 +2044,7 @@ public class DispatcherTest extends AbstractDispatcherTest {
                 JobManagerJobMetricGroupFactory jobManagerJobMetricGroupFactory,
                 FatalErrorHandler fatalErrorHandler,
                 Collection<FailureEnricher> failureEnrichers,
+                JobStatusListener singleJobApplication,
                 long initializationTimestamp)
                 throws Exception {
             return new BlockingTerminationJobManagerService(
@@ -2119,6 +2123,7 @@ public class DispatcherTest extends AbstractDispatcherTest {
                 JobManagerJobMetricGroupFactory jobManagerJobMetricGroupFactory,
                 FatalErrorHandler fatalErrorHandler,
                 Collection<FailureEnricher> failureEnrichers,
+                JobStatusListener singleJobApplication,
                 long initializationTimestamp) {
             initializationTimestampQueue.offer(initializationTimestamp);
             return TestingJobManagerRunner.newBuilder().setJobId(graph.getJobID()).build();
@@ -2145,6 +2150,7 @@ public class DispatcherTest extends AbstractDispatcherTest {
                 JobManagerJobMetricGroupFactory jobManagerJobMetricGroupFactory,
                 FatalErrorHandler fatalErrorHandler,
                 Collection<FailureEnricher> failureEnrichers,
+                JobStatusListener singleJobApplication,
                 long initializationTimestamp)
                 throws Exception {
             TestingJobManagerRunner runner =
@@ -2158,6 +2164,7 @@ public class DispatcherTest extends AbstractDispatcherTest {
                             jobManagerJobMetricGroupFactory,
                             fatalErrorHandler,
                             failureEnrichers,
+                            null,
                             initializationTimestamp);
             runner.completeJobMasterGatewayFuture(testingJobMasterGateway);
             return runner;
@@ -2184,6 +2191,7 @@ public class DispatcherTest extends AbstractDispatcherTest {
                 JobManagerJobMetricGroupFactory jobManagerJobMetricGroupFactory,
                 FatalErrorHandler fatalErrorHandler,
                 Collection<FailureEnricher> failureEnrichers,
+                JobStatusListener singleJobApplication,
                 long initializationTimestamp)
                 throws Exception {
             assertThat(graph.getJobID()).isEqualTo(expectedJobId);
@@ -2198,6 +2206,7 @@ public class DispatcherTest extends AbstractDispatcherTest {
                     jobManagerJobMetricGroupFactory,
                     fatalErrorHandler,
                     Collections.emptySet(),
+                    null,
                     initializationTimestamp);
         }
     }
@@ -2221,6 +2230,7 @@ public class DispatcherTest extends AbstractDispatcherTest {
                 JobManagerJobMetricGroupFactory jobManagerJobMetricGroupFactory,
                 FatalErrorHandler fatalErrorHandler,
                 Collection<FailureEnricher> failureEnrichers,
+                JobStatusListener singleJobApplication,
                 long initializationTimestamp)
                 throws Exception {
             return resultFutureQueue.remove();
@@ -2249,6 +2259,7 @@ public class DispatcherTest extends AbstractDispatcherTest {
                 JobManagerJobMetricGroupFactory jobManagerJobMetricGroupFactory,
                 FatalErrorHandler fatalErrorHandler,
                 Collection<FailureEnricher> failureEnrichers,
+                JobStatusListener singleJobApplication,
                 long initializationTimestamp)
                 throws Exception {
             final TestingJobManagerRunner runner =

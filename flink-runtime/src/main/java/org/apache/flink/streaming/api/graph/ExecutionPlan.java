@@ -207,4 +207,11 @@ public interface ExecutionPlan extends Serializable {
      * @return the application id
      */
     ApplicationID getApplicationId();
+
+    /**
+     * Sets the unique identifier of the application this job belongs to.
+     *
+     * @param applicationId the application id
+     */
+    void setApplicationId(ApplicationID applicationId);
 }

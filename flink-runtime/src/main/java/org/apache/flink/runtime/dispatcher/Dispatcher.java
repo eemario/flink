@@ -58,6 +58,7 @@ import org.apache.flink.runtime.entrypoint.ClusterEntryPointExceptionUtils;
 import org.apache.flink.runtime.executiongraph.AccessExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ArchivedExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ArchivedExecutionJobVertex;
+import org.apache.flink.runtime.executiongraph.JobStatusListener;
 import org.apache.flink.runtime.heartbeat.HeartbeatServices;
 import org.apache.flink.runtime.highavailability.HighAvailabilityServices;
 import org.apache.flink.runtime.highavailability.JobResultEntry;
@@ -388,7 +389,8 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                         this::onFatalError);
 
         if (dispatcherBootstrap instanceof ApplicationBootstrap) {
-            submitApplication(((ApplicationBootstrap) dispatcherBootstrap).getApplication()).get();
+            internalSubmitApplication(((ApplicationBootstrap) dispatcherBootstrap).getApplication())
+                    .get();
         }
     }
 
@@ -611,8 +613,9 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
         return archiveExecutionGraphToHistoryServer(executionGraphInfo);
     }
 
-    /** This method must be called from the main thread. */
-    private CompletableFuture<Acknowledge> submitApplication(AbstractApplication application) {
+    @Override
+    public CompletableFuture<Acknowledge> submitApplication(
+            AbstractApplication application, Duration timeout) {
         final ApplicationID applicationId = application.getApplicationId();
         log.info(
                 "Received application submission '{}' ({}).", application.getName(), applicationId);
@@ -622,6 +625,16 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
             throw new CompletionException(
                     new DuplicateApplicationSubmissionException(applicationId));
         }
+
+        return internalSubmitApplication(application);
+    }
+
+    /** This method must be called from the main thread. */
+    private CompletableFuture<Acknowledge> internalSubmitApplication(
+            AbstractApplication application) {
+        final ApplicationID applicationId = application.getApplicationId();
+        log.info("Submitting application '{}' ({}).", application.getName(), applicationId);
+
         applications.put(applicationId, application);
         Set<JobID> jobs = recoveredApplicationJobIds.remove(applicationId);
         if (jobs != null) {
@@ -763,6 +776,15 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
     private JobManagerRunner createJobMasterRunner(ExecutionPlan executionPlan) throws Exception {
         Preconditions.checkState(!jobManagerRunnerRegistry.isRegistered(executionPlan.getJobID()));
+
+        JobStatusListener singleJobApplication = null;
+        ApplicationID applicationId = executionPlan.getApplicationId();
+        if (applicationId != null && applications.containsKey(applicationId)) {
+            AbstractApplication application = applications.get(applicationId);
+            if (application instanceof JobStatusListener) {
+                singleJobApplication = (JobStatusListener) application;
+            }
+        }
         return jobManagerRunnerFactory.createJobManagerRunner(
                 executionPlan,
                 configuration,
@@ -773,6 +795,7 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                 new DefaultJobManagerJobMetricGroupFactory(jobManagerMetricGroup),
                 fatalErrorHandler,
                 failureEnrichers,
+                singleJobApplication,
                 System.currentTimeMillis());
     }
 
