@@ -133,6 +133,8 @@ public class StreamGraph implements Pipeline, ExecutionPlan {
 
     private String jobName;
 
+    private int jobIndex;
+
     private JobID jobId;
 
     /** ID of the application this job belongs to. */
@@ -425,6 +427,14 @@ public class StreamGraph implements Pipeline, ExecutionPlan {
 
     public void setJobName(String jobName) {
         this.jobName = jobName;
+    }
+
+    public int getJobIndex() {
+        return jobIndex;
+    }
+
+    public void setJobIndex(int jobIndex) {
+        this.jobIndex = jobIndex;
     }
 
     public LineageGraph getLineageGraph() {

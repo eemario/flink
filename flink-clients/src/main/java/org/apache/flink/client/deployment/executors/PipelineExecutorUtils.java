@@ -91,7 +91,12 @@ public class PipelineExecutorUtils {
 
         configuration
                 .getOptional(PipelineOptionsInternal.PIPELINE_FIXED_JOB_ID)
-                .ifPresent(strJobID -> streamGraph.setJobId(JobID.fromHexString(strJobID)));
+                .ifPresent(
+                        strJobID ->
+                                streamGraph.setJobId(
+                                        JobID.fromJobIndex(
+                                                streamGraph.getJobIndex(),
+                                                JobID.fromHexString(strJobID))));
 
         if (configuration.get(DeploymentOptions.ATTACHED)
                 && configuration.get(DeploymentOptions.SHUTDOWN_IF_ATTACHED)) {

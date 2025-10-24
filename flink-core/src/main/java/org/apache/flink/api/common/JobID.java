@@ -18,6 +18,7 @@
 
 package org.apache.flink.api.common;
 
+import org.apache.flink.annotation.Internal;
 import org.apache.flink.annotation.Public;
 import org.apache.flink.util.AbstractID;
 import org.apache.flink.util.StringUtils;
@@ -112,5 +113,14 @@ public final class JobID extends AbstractID {
                             + "[0-9a-fA-F]{32}, e.g. fd72014d4c864993a2e5a9287b4a9c5d.",
                     e);
         }
+    }
+
+    /**
+     * Constructs a new {@link JobID} using the provided jobIndex and the base jobId. A new JobID is
+     * created by adding jobIndex to both the lower and upper parts of the base jobId.
+     */
+    @Internal
+    public static JobID fromJobIndex(int jobIndex, JobID baseId) {
+        return new JobID(baseId.lowerPart + jobIndex, baseId.upperPart + jobIndex);
     }
 }

@@ -115,6 +115,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -199,6 +200,12 @@ public class StreamExecutionEnvironment implements AutoCloseable {
 
     // Records the slot sharing groups and their corresponding fine-grained ResourceProfile
     private final Map<String, ResourceProfile> slotSharingGroupResources = new HashMap<>();
+
+    private int nextAutoJobIndex = 0;
+
+    private boolean isAutoJobIndexUsed = false;
+
+    private final Set<Integer> manuallySetJobIndices = new HashSet<>();
 
     // --------------------------------------------------------------------------------------------
     // Constructor and Properties
@@ -1815,7 +1822,8 @@ public class StreamExecutionEnvironment implements AutoCloseable {
      * have resulted in a "sink" operation. Sink operations are for example printing results or
      * forwarding them to a message queue.
      *
-     * <p>The program execution will be logged and displayed with a generated default name.
+     * <p>The program execution will be logged and displayed with a generated default name. The job
+     * index is automatically assigned.
      *
      * @return The result of the job execution, containing elapsed time and accumulators.
      * @throws Exception which occurs during job execution.
@@ -1829,18 +1837,71 @@ public class StreamExecutionEnvironment implements AutoCloseable {
      * have resulted in a "sink" operation. Sink operations are for example printing results or
      * forwarding them to a message queue.
      *
-     * <p>The program execution will be logged and displayed with the provided name
+     * <p>The program execution will be logged and displayed with the provided name. The job index
+     * is automatically assigned.
      *
      * @param jobName Desired name of the job
      * @return The result of the job execution, containing elapsed time and accumulators.
      * @throws Exception which occurs during job execution.
      */
     public JobExecutionResult execute(String jobName) throws Exception {
+        if (!manuallySetJobIndices.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Job index has been manually set. Please use execute(int jobIndex) or execute(String jobName, int jobIndex) instead.");
+        }
+        isAutoJobIndexUsed = true;
+        return internalExecute(jobName, nextAutoJobIndex++);
+    }
+
+    /**
+     * Triggers the program execution. The environment will execute all parts of the program that
+     * have resulted in a "sink" operation. Sink operations are for example printing results or
+     * forwarding them to a message queue.
+     *
+     * <p>The program execution will be logged and displayed with a generated default name. The
+     * provided job index is used.
+     *
+     * @return The result of the job execution, containing elapsed time and accumulators.
+     * @throws Exception which occurs during job execution.
+     */
+    public JobExecutionResult execute(int jobIndex) throws Exception {
+        return execute(null, jobIndex);
+    }
+
+    /**
+     * Triggers the program execution. The environment will execute all parts of the program that
+     * have resulted in a "sink" operation. Sink operations are for example printing results or
+     * forwarding them to a message queue.
+     *
+     * <p>The program execution will be logged and displayed with the provided name. The provided
+     * job index is used.
+     *
+     * @param jobName Desired name of the job
+     * @return The result of the job execution, containing elapsed time and accumulators.
+     * @throws Exception which occurs during job execution.
+     */
+    public JobExecutionResult execute(String jobName, int jobIndex) throws Exception {
+        if (isAutoJobIndexUsed) {
+            throw new IllegalArgumentException(
+                    "Job index has been automatically assigned. Please use execute() or execute(String jobName) instead.");
+        }
+        if (manuallySetJobIndices.contains(jobIndex)) {
+            throw new IllegalArgumentException(
+                    "Job index "
+                            + jobIndex
+                            + " has already been used. Please specify a different index.");
+        }
+        manuallySetJobIndices.add(jobIndex);
+        return internalExecute(jobName, jobIndex);
+    }
+
+    private JobExecutionResult internalExecute(String jobName, int jobIndex) throws Exception {
         final List<Transformation<?>> originalTransformations = new ArrayList<>(transformations);
         StreamGraph streamGraph = getStreamGraph();
         if (jobName != null) {
             streamGraph.setJobName(jobName);
         }
+        streamGraph.setJobIndex(jobIndex);
 
         try {
             return execute(streamGraph);

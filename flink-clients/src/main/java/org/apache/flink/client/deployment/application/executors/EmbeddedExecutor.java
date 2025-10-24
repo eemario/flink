@@ -50,6 +50,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
+import static org.apache.flink.util.Preconditions.checkState;
 
 /**
  * A base class for {@link PipelineExecutor executors} that invoke directly methods of the {@link
@@ -109,14 +110,20 @@ public class EmbeddedExecutor implements PipelineExecutor {
             throws Exception {
         checkNotNull(pipeline);
         checkNotNull(configuration);
+        checkState(pipeline instanceof StreamGraph);
+
+        final StreamGraph streamGraph = (StreamGraph) pipeline;
 
         final Optional<JobID> optJobId =
                 configuration
                         .getOptional(PipelineOptionsInternal.PIPELINE_FIXED_JOB_ID)
                         .map(JobID::fromHexString);
 
-        if (optJobId.isPresent() && submittedJobIds.contains(optJobId.get())) {
-            return getJobClientFuture(optJobId.get(), userCodeClassloader);
+        if (optJobId.isPresent()) {
+            final JobID actualJobId = JobID.fromJobIndex(streamGraph.getJobIndex(), optJobId.get());
+            if (submittedJobIds.contains(actualJobId)) {
+                return getJobClientFuture(actualJobId, userCodeClassloader);
+            }
         }
 
         return submitAndGetJobClientFuture(pipeline, configuration, userCodeClassloader);
