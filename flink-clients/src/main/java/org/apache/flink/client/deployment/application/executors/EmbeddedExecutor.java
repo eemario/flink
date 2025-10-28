@@ -122,7 +122,10 @@ public class EmbeddedExecutor implements PipelineExecutor {
         if (optJobId.isPresent()) {
             final JobID actualJobId = JobID.fromJobIndex(streamGraph.getJobIndex(), optJobId.get());
             if (submittedJobIds.contains(actualJobId)) {
-                return getJobClientFuture(actualJobId, userCodeClassloader);
+                final Duration timeout = configuration.get(ClientOptions.CLIENT_TIMEOUT);
+                return dispatcherGateway
+                        .recoverJob(actualJobId, timeout)
+                        .thenCompose(ack -> getJobClientFuture(actualJobId, userCodeClassloader));
             }
         }
 
