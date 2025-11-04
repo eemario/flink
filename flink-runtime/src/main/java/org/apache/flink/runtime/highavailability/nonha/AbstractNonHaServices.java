@@ -18,6 +18,9 @@
 
 package org.apache.flink.runtime.highavailability.nonha;
 
+import org.apache.flink.runtime.application.ApplicationResultStore;
+import org.apache.flink.runtime.application.ApplicationStore;
+import org.apache.flink.runtime.application.EmbeddedApplicationResultStore;
 import org.apache.flink.runtime.blob.BlobStore;
 import org.apache.flink.runtime.blob.VoidBlobStore;
 import org.apache.flink.runtime.checkpoint.CheckpointRecoveryFactory;
@@ -26,6 +29,7 @@ import org.apache.flink.runtime.highavailability.HighAvailabilityServices;
 import org.apache.flink.runtime.highavailability.JobResultStore;
 import org.apache.flink.runtime.highavailability.nonha.embedded.EmbeddedJobResultStore;
 import org.apache.flink.runtime.jobmanager.ExecutionPlanStore;
+import org.apache.flink.runtime.jobmanager.StandaloneApplicationStore;
 import org.apache.flink.runtime.jobmanager.StandaloneExecutionPlanStore;
 
 import javax.annotation.concurrent.GuardedBy;
@@ -45,12 +49,15 @@ public abstract class AbstractNonHaServices implements HighAvailabilityServices 
 
     private final JobResultStore jobResultStore;
 
+    private final ApplicationResultStore applicationResultStore;
+
     private final VoidBlobStore voidBlobStore;
 
     private boolean shutdown;
 
     public AbstractNonHaServices() {
         this.jobResultStore = new EmbeddedJobResultStore();
+        this.applicationResultStore = new EmbeddedApplicationResultStore();
         this.voidBlobStore = new VoidBlobStore();
 
         shutdown = false;
@@ -84,6 +91,24 @@ public abstract class AbstractNonHaServices implements HighAvailabilityServices 
             checkNotShutdown();
 
             return jobResultStore;
+        }
+    }
+
+    @Override
+    public ApplicationStore getApplicationStore() throws Exception {
+        synchronized (lock) {
+            checkNotShutdown();
+
+            return new StandaloneApplicationStore();
+        }
+    }
+
+    @Override
+    public ApplicationResultStore getApplicationResultStore() throws Exception {
+        synchronized (lock) {
+            checkNotShutdown();
+
+            return applicationResultStore;
         }
     }
 

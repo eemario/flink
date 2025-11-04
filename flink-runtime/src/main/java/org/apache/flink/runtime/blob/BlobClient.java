@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.blob;
 
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.configuration.BlobServerOptions;
 import org.apache.flink.configuration.Configuration;
@@ -45,21 +46,24 @@ import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 import static org.apache.flink.runtime.blob.BlobKey.BlobType.PERMANENT_BLOB;
+import static org.apache.flink.runtime.blob.BlobServerProtocol.APPLICATION_RELATED_CONTENT;
 import static org.apache.flink.runtime.blob.BlobServerProtocol.BUFFER_SIZE;
 import static org.apache.flink.runtime.blob.BlobServerProtocol.GET_OPERATION;
 import static org.apache.flink.runtime.blob.BlobServerProtocol.JOB_RELATED_CONTENT;
 import static org.apache.flink.runtime.blob.BlobServerProtocol.JOB_UNRELATED_CONTENT;
 import static org.apache.flink.runtime.blob.BlobServerProtocol.RETURN_ERROR;
 import static org.apache.flink.runtime.blob.BlobServerProtocol.RETURN_OKAY;
+import static org.apache.flink.runtime.blob.BlobServerProtocol.STAT_OPERATION;
 import static org.apache.flink.runtime.blob.BlobUtils.readExceptionFromStream;
 import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
  * The BLOB client can communicate with the BLOB server and either upload (PUT), download (GET), or
- * delete (DELETE) BLOBs.
+ * check existence (STAT) BLOBs.
  */
 public final class BlobClient implements Closeable {
 
@@ -359,6 +363,44 @@ public final class BlobClient implements Closeable {
     }
 
     /**
+     * Uploads data from the given input stream to the BLOB server, associating it with an
+     * application ID.
+     *
+     * @param applicationId the ID of the application the BLOB belongs to
+     * @param inputStream the input stream to read the data from
+     * @param blobType whether the BLOB should become permanent or transient
+     * @return the computed BLOB key of the uploaded BLOB
+     * @throws IOException thrown if an I/O error occurs while uploading the data to the BLOB server
+     */
+    BlobKey putInputStream(
+            ApplicationID applicationId, InputStream inputStream, BlobKey.BlobType blobType)
+            throws IOException {
+
+        if (this.socket.isClosed()) {
+            throw new IllegalStateException(
+                    "BLOB Client is not connected. "
+                            + "Client has been shut down or encountered an error before.");
+        }
+        checkNotNull(inputStream);
+        checkNotNull(applicationId);
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug(
+                    "PUT BLOB stream for application {} to {}.",
+                    applicationId,
+                    socket.getLocalSocketAddress());
+        }
+
+        try (BlobOutputStream os = new BlobOutputStream(applicationId, blobType, socket)) {
+            IOUtils.copyBytes(inputStream, os, BUFFER_SIZE, false);
+            return os.finish();
+        } catch (Throwable t) {
+            BlobUtils.closeSilently(socket, LOG);
+            throw new IOException("PUT operation failed: " + t.getMessage(), t);
+        }
+    }
+
+    /**
      * Uploads the JAR files to the {@link PermanentBlobService} of the {@link BlobServer} at the
      * given address with HA as configured.
      *
@@ -405,5 +447,88 @@ public final class BlobClient implements Closeable {
         try (InputStream is = fs.open(file)) {
             return (PermanentBlobKey) putInputStream(jobId, is, PERMANENT_BLOB);
         }
+    }
+
+    /**
+     * Uploads a single file to the {@link PermanentBlobService} of the given {@link BlobServer},
+     * associating it with an application ID instead of a job ID.
+     *
+     * @param applicationId ID of the application this blob belongs to
+     * @param file file to upload
+     * @throws IOException if the upload fails
+     */
+    public PermanentBlobKey uploadFile(ApplicationID applicationId, Path file) throws IOException {
+        final FileSystem fs = file.getFileSystem();
+        try (InputStream is = fs.open(file)) {
+            return (PermanentBlobKey) putInputStream(applicationId, is, PERMANENT_BLOB);
+        }
+    }
+
+    // --------------------------------------------------------------------------------------------
+    //  STAT
+    // --------------------------------------------------------------------------------------------
+
+    public Optional<PermanentBlobKey> stat(ApplicationID applicationId, Path file)
+            throws IOException {
+
+        if (isClosed()) {
+            throw new IllegalStateException(
+                    "BLOB Client is not connected. "
+                            + "Client has been shut down or encountered an error before.");
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug(
+                    "STAT BLOB for file {} of application {} from {}.",
+                    file,
+                    applicationId,
+                    socket.getLocalSocketAddress());
+        }
+
+        try {
+            OutputStream os = this.socket.getOutputStream();
+            InputStream is = this.socket.getInputStream();
+
+            final byte[] messageDigest = BlobUtils.calculateMessageDigest(new File(file.toUri()));
+
+            // Send STAT header
+            sendStatHeader(os, applicationId, messageDigest);
+
+            return receiveAndCheckStatResponse(is);
+        } catch (Throwable t) {
+            BlobUtils.closeSilently(socket, LOG);
+            throw new IOException("STAT operation failed: " + t.getMessage(), t);
+        }
+    }
+
+    private static void sendStatHeader(
+            OutputStream outputStream, ApplicationID applicationId, byte[] messageDigest)
+            throws IOException {
+
+        // Signal type of operation
+        outputStream.write(STAT_OPERATION);
+
+        // Send application ID and messageDigest
+        outputStream.write(APPLICATION_RELATED_CONTENT);
+        outputStream.write(applicationId.getBytes());
+
+        outputStream.write(messageDigest);
+    }
+
+    private static Optional<PermanentBlobKey> receiveAndCheckStatResponse(InputStream is)
+            throws IOException {
+        int response = is.read();
+        if (response < 0) {
+            throw new EOFException("Premature end of response");
+        }
+        if (response == RETURN_ERROR) {
+            Throwable cause = readExceptionFromStream(is);
+            if (cause instanceof FileNotFoundException) {
+                return Optional.empty();
+            }
+            throw new IOException("Server side error: " + cause.getMessage(), cause);
+        } else if (response != RETURN_OKAY) {
+            throw new IOException("Unrecognized response");
+        }
+        return Optional.of((PermanentBlobKey) PermanentBlobKey.readFromInputStream(is));
     }
 }

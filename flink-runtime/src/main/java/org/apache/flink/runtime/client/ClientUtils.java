@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.client;
 
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.core.fs.Path;
@@ -120,6 +121,11 @@ public enum ClientUtils {
     private static void setUserJarBlobKeys(
             Collection<PermanentBlobKey> blobKeys, ExecutionPlan executionPlan) {
         blobKeys.forEach(executionPlan::addUserJarBlobKey);
+    }
+
+    public static PermanentBlobKey uploadUserJar(
+            ApplicationID applicationId, Path jar, BlobClient blobClient) throws IOException {
+        return blobClient.uploadFile(applicationId, jar);
     }
 
     /**

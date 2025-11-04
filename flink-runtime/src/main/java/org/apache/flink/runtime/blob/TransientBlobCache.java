@@ -169,7 +169,7 @@ public class TransientBlobCache extends AbstractBlobCache implements TransientBl
     @Override
     public TransientBlobKey putTransient(InputStream inputStream) throws IOException {
         try (BlobClient bc = createClient()) {
-            return (TransientBlobKey) bc.putInputStream(null, inputStream, TRANSIENT_BLOB);
+            return (TransientBlobKey) bc.putInputStream((JobID) null, inputStream, TRANSIENT_BLOB);
         }
     }
 

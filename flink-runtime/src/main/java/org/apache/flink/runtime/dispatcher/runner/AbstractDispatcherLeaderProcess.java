@@ -20,7 +20,12 @@ package org.apache.flink.runtime.dispatcher.runner;
 
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.runtime.application.AbstractApplication;
+import org.apache.flink.runtime.application.ApplicationResult;
+import org.apache.flink.runtime.application.ApplicationResultStore;
+import org.apache.flink.runtime.application.ApplicationWriter;
 import org.apache.flink.runtime.clusterframework.ApplicationStatus;
 import org.apache.flink.runtime.dispatcher.DispatcherGateway;
 import org.apache.flink.runtime.dispatcher.DispatcherId;
@@ -260,8 +265,12 @@ public abstract class AbstractDispatcherLeaderProcess implements DispatcherLeade
                 DispatcherId dispatcherId,
                 Collection<ExecutionPlan> recoveredJobs,
                 Collection<JobResult> recoveredDirtyJobResults,
+                Collection<AbstractApplication> recoveredApplications,
+                Collection<ApplicationResult> recoveredDirtyApplicationResults,
                 ExecutionPlanWriter executionPlanWriter,
-                JobResultStore jobResultStore);
+                JobResultStore jobResultStore,
+                ApplicationWriter applicationWriter,
+                ApplicationResultStore applicationResultStore);
     }
 
     /** An accessor of the {@link DispatcherGateway}. */
@@ -269,6 +278,8 @@ public abstract class AbstractDispatcherLeaderProcess implements DispatcherLeade
         DispatcherGateway getGateway();
 
         CompletableFuture<Void> onRemovedExecutionPlan(JobID jobId);
+
+        CompletableFuture<Void> onRemovedApplication(ApplicationID applicationId);
 
         CompletableFuture<ApplicationStatus> getShutDownFuture();
 

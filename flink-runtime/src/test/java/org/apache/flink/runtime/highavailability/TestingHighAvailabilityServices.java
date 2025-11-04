@@ -19,6 +19,9 @@
 package org.apache.flink.runtime.highavailability;
 
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.runtime.application.ApplicationResultStore;
+import org.apache.flink.runtime.application.ApplicationStore;
+import org.apache.flink.runtime.application.EmbeddedApplicationResultStore;
 import org.apache.flink.runtime.blob.BlobStore;
 import org.apache.flink.runtime.blob.VoidBlobStore;
 import org.apache.flink.runtime.checkpoint.CheckpointRecoveryFactory;
@@ -69,6 +72,11 @@ public class TestingHighAvailabilityServices implements HighAvailabilityServices
     private volatile ExecutionPlanStore executionPlanStore;
 
     private volatile JobResultStore jobResultStore = new EmbeddedJobResultStore();
+
+    private volatile ApplicationStore applicationStore;
+
+    private volatile ApplicationResultStore applicationResultStore =
+            new EmbeddedApplicationResultStore();
 
     private CompletableFuture<Void> closeFuture = new CompletableFuture<>();
 
@@ -262,6 +270,22 @@ public class TestingHighAvailabilityServices implements HighAvailabilityServices
     @Override
     public JobResultStore getJobResultStore() {
         return jobResultStore;
+    }
+
+    @Override
+    public ApplicationStore getApplicationStore() {
+        ApplicationStore store = applicationStore;
+
+        if (store != null) {
+            return store;
+        } else {
+            throw new IllegalStateException("ApplicationStore has not been set");
+        }
+    }
+
+    @Override
+    public ApplicationResultStore getApplicationResultStore() {
+        return applicationResultStore;
     }
 
     @Override

@@ -241,6 +241,10 @@ public class JarHandlerUtils {
         public ApplicationID getApplicationId() {
             return applicationId;
         }
+
+        public Path getJarFile() {
+            return jarFile;
+        }
     }
 
     private static List<URL> getClasspaths(Configuration configuration) {

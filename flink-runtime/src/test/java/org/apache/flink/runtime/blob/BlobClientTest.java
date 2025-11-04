@@ -343,7 +343,7 @@ class BlobClientTest {
             // Store the data (job-unrelated)
             if (blobType == TRANSIENT_BLOB) {
                 is = Files.newInputStream(testFile.toPath());
-                receivedKey1 = client.putInputStream(null, is, blobType);
+                receivedKey1 = client.putInputStream((JobID) null, is, blobType);
                 assertThat(receivedKey1.getHash()).isEqualTo(digest);
             }
 

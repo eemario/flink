@@ -226,7 +226,8 @@ public class DefaultDispatcherResourceManagerComponentFactory
                     dispatcherRunnerFactory.createDispatcherRunner(
                             highAvailabilityServices.getDispatcherLeaderElection(),
                             fatalErrorHandler,
-                            new HaServicesJobPersistenceComponentFactory(highAvailabilityServices),
+                            new HaServicesJobPersistenceComponentFactory(
+                                    highAvailabilityServices, blobServer),
                             ioExecutor,
                             rpcService,
                             partialDispatcherServices);

@@ -68,7 +68,9 @@ class BlobUtilsNonWritableTest {
         assertThatThrownBy(
                         () ->
                                 BlobUtils.getStorageLocation(
-                                        getStorageLocationFile(), null, new TransientBlobKey()))
+                                        getStorageLocationFile(),
+                                        (JobID) null,
+                                        new TransientBlobKey()))
                 .isInstanceOf(IOException.class);
     }
 

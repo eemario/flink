@@ -21,6 +21,9 @@ package org.apache.flink.runtime.dispatcher.runner;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.HighAvailabilityOptions;
 import org.apache.flink.core.testutils.AllCallbackWrapper;
+import org.apache.flink.runtime.application.ApplicationResultStore;
+import org.apache.flink.runtime.application.ApplicationStore;
+import org.apache.flink.runtime.application.EmbeddedApplicationResultStore;
 import org.apache.flink.runtime.blob.BlobServer;
 import org.apache.flink.runtime.blob.BlobUtils;
 import org.apache.flink.runtime.blob.PermanentBlobKey;
@@ -201,6 +204,22 @@ class ZooKeeperDefaultDispatcherRunnerTest {
                                 public JobResultStore createJobResultStore() {
                                     return new EmbeddedJobResultStore();
                                 }
+
+                                @Override
+                                public ApplicationStore createApplicationStore() {
+                                    return createZooKeeperApplicationStore(
+                                            curatorFrameworkWrapper.asCuratorFramework());
+                                }
+
+                                @Override
+                                public ApplicationResultStore createApplicationResultStore() {
+                                    return new EmbeddedApplicationResultStore();
+                                }
+
+                                @Override
+                                public BlobServer createBlobServer() {
+                                    return null;
+                                }
                             },
                             partialDispatcherServices,
                             defaultDispatcherRunnerFactory)) {
@@ -264,6 +283,15 @@ class ZooKeeperDefaultDispatcherRunnerTest {
     private ExecutionPlanStore createZooKeeperExecutionPlanStore(CuratorFramework client) {
         try {
             return ZooKeeperUtils.createExecutionPlans(client, configuration);
+        } catch (Exception e) {
+            ExceptionUtils.rethrow(e);
+            return null;
+        }
+    }
+
+    private ApplicationStore createZooKeeperApplicationStore(CuratorFramework client) {
+        try {
+            return ZooKeeperUtils.createApplicationStore(client, configuration);
         } catch (Exception e) {
             ExceptionUtils.rethrow(e);
             return null;

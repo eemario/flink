@@ -18,6 +18,9 @@
 
 package org.apache.flink.runtime.jobmanager;
 
+import org.apache.flink.runtime.application.ApplicationResultStore;
+import org.apache.flink.runtime.application.ApplicationStore;
+import org.apache.flink.runtime.blob.BlobServer;
 import org.apache.flink.runtime.highavailability.JobResultStore;
 
 /** Factory for components that are responsible for persisting a job for recovery. */
@@ -36,4 +39,25 @@ public interface JobPersistenceComponentFactory {
      * @return a {@code JobResultStore} instance.
      */
     JobResultStore createJobResultStore();
+
+    /**
+     * Creates {@link ApplicationStore} instances.
+     *
+     * @return a {@code ApplicationStore} instance.
+     */
+    ApplicationStore createApplicationStore();
+
+    /**
+     * Creates {@link ApplicationResultStore} instances.
+     *
+     * @return a {@code ApplicationResultStore} instance.
+     */
+    ApplicationResultStore createApplicationResultStore();
+
+    /**
+     * Creates {@link BlobServer} instances.
+     *
+     * @return a {@code BlobServer} instance.
+     */
+    BlobServer createBlobServer();
 }

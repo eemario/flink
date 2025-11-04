@@ -18,7 +18,15 @@
 
 package org.apache.flink.runtime.dispatcher.runner;
 
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.runtime.application.AbstractApplication;
+import org.apache.flink.runtime.application.ApplicationResult;
+import org.apache.flink.runtime.application.ApplicationResultStore;
+import org.apache.flink.runtime.application.ApplicationStore;
+import org.apache.flink.runtime.application.ApplicationStoreEntry;
+import org.apache.flink.runtime.blob.BlobServer;
+import org.apache.flink.runtime.client.DuplicateApplicationSubmissionException;
 import org.apache.flink.runtime.client.DuplicateJobSubmissionException;
 import org.apache.flink.runtime.dispatcher.Dispatcher;
 import org.apache.flink.runtime.dispatcher.DispatcherGateway;
@@ -52,13 +60,19 @@ import java.util.stream.Collectors;
  * Dispatcher}.
  */
 public class SessionDispatcherLeaderProcess extends AbstractDispatcherLeaderProcess
-        implements ExecutionPlanStore.ExecutionPlanListener {
+        implements ExecutionPlanStore.ExecutionPlanListener, ApplicationStore.ApplicationListener {
 
     private final DispatcherGatewayServiceFactory dispatcherGatewayServiceFactory;
 
     private final ExecutionPlanStore executionPlanStore;
 
     private final JobResultStore jobResultStore;
+
+    private final ApplicationStore applicationStore;
+
+    private final ApplicationResultStore applicationResultStore;
+
+    private final BlobServer blobServer;
 
     private final Executor ioExecutor;
 
@@ -69,6 +83,9 @@ public class SessionDispatcherLeaderProcess extends AbstractDispatcherLeaderProc
             DispatcherGatewayServiceFactory dispatcherGatewayServiceFactory,
             ExecutionPlanStore executionPlanStore,
             JobResultStore jobResultStore,
+            ApplicationStore applicationStore,
+            ApplicationResultStore applicationResultStore,
+            BlobServer blobServer,
             Executor ioExecutor,
             FatalErrorHandler fatalErrorHandler) {
         super(leaderSessionId, fatalErrorHandler);
@@ -76,6 +93,9 @@ public class SessionDispatcherLeaderProcess extends AbstractDispatcherLeaderProc
         this.dispatcherGatewayServiceFactory = dispatcherGatewayServiceFactory;
         this.executionPlanStore = executionPlanStore;
         this.jobResultStore = jobResultStore;
+        this.applicationStore = applicationStore;
+        this.applicationResultStore = applicationResultStore;
+        this.blobServer = blobServer;
         this.ioExecutor = ioExecutor;
     }
 
@@ -98,44 +118,101 @@ public class SessionDispatcherLeaderProcess extends AbstractDispatcherLeaderProc
                             getClass().getSimpleName()),
                     e);
         }
+
+        try {
+            applicationStore.start(this);
+        } catch (Exception e) {
+            throw new FlinkRuntimeException(
+                    String.format(
+                            "Could not start %s when trying to start the %s.",
+                            applicationStore.getClass().getSimpleName(),
+                            getClass().getSimpleName()),
+                    e);
+        }
     }
 
     private void createDispatcherIfRunning(
             Collection<ExecutionPlan> executionPlans,
-            Collection<JobResult> recoveredDirtyJobResults) {
+            Collection<JobResult> recoveredDirtyJobResults,
+            Collection<AbstractApplication> recoveredApplications,
+            Collection<ApplicationResult> recoveredDirtyApplicationResults) {
         runIfStateIs(
-                State.RUNNING, () -> createDispatcher(executionPlans, recoveredDirtyJobResults));
+                State.RUNNING,
+                () ->
+                        createDispatcher(
+                                executionPlans,
+                                recoveredDirtyJobResults,
+                                recoveredApplications,
+                                recoveredDirtyApplicationResults));
     }
 
     private void createDispatcher(
             Collection<ExecutionPlan> executionPlans,
-            Collection<JobResult> recoveredDirtyJobResults) {
+            Collection<JobResult> recoveredDirtyJobResults,
+            Collection<AbstractApplication> recoveredApplications,
+            Collection<ApplicationResult> recoveredDirtyApplicationResults) {
 
         final DispatcherGatewayService dispatcherService =
                 dispatcherGatewayServiceFactory.create(
                         DispatcherId.fromUuid(getLeaderSessionId()),
                         executionPlans,
                         recoveredDirtyJobResults,
+                        recoveredApplications,
+                        recoveredDirtyApplicationResults,
                         executionPlanStore,
-                        jobResultStore);
+                        jobResultStore,
+                        applicationStore,
+                        applicationResultStore);
 
         completeDispatcherSetup(dispatcherService);
     }
 
     private CompletableFuture<Void>
             createDispatcherBasedOnRecoveredExecutionPlansAndRecoveredDirtyJobResults() {
-        final CompletableFuture<Collection<JobResult>> dirtyJobsFuture =
+        final CompletableFuture<Collection<JobResult>> dirtyJobResultsFuture =
                 CompletableFuture.supplyAsync(this::getDirtyJobResultsIfRunning, ioExecutor);
 
-        return dirtyJobsFuture
-                .thenApplyAsync(
-                        dirtyJobs ->
-                                this.recoverJobsIfRunning(
-                                        dirtyJobs.stream()
+        final CompletableFuture<Collection<ExecutionPlan>> recoveredJobsFuture =
+                dirtyJobResultsFuture.thenApplyAsync(
+                        dirtyJobResults ->
+                                recoverJobsIfRunning(
+                                        dirtyJobResults.stream()
                                                 .map(JobResult::getJobId)
                                                 .collect(Collectors.toSet())),
-                        ioExecutor)
-                .thenAcceptBoth(dirtyJobsFuture, this::createDispatcherIfRunning)
+                        ioExecutor);
+
+        final CompletableFuture<Collection<ApplicationResult>> dirtyApplicationResultsFuture =
+                CompletableFuture.supplyAsync(
+                        this::getDirtyApplicationResultsIfRunning, ioExecutor);
+
+        final CompletableFuture<Collection<AbstractApplication>> recoveredApplicationsFuture =
+                dirtyApplicationResultsFuture.thenCombineAsync(
+                        recoveredJobsFuture,
+                        (dirtyApplicationResults, recoveredJobs) -> {
+                            Set<JobID> recoveredJobIds =
+                                    recoveredJobs.stream()
+                                            .map(ExecutionPlan::getJobID)
+                                            .collect(Collectors.toSet());
+                            return recoverApplicationsIfRunning(
+                                    dirtyApplicationResults.stream()
+                                            .map(ApplicationResult::getApplicationId)
+                                            .collect(Collectors.toSet()),
+                                    recoveredJobIds);
+                        },
+                        ioExecutor);
+
+        return CompletableFuture.allOf(
+                        dirtyJobResultsFuture,
+                        recoveredJobsFuture,
+                        dirtyApplicationResultsFuture,
+                        recoveredApplicationsFuture)
+                .thenRun(
+                        () ->
+                                createDispatcherIfRunning(
+                                        recoveredJobsFuture.join(),
+                                        dirtyJobResultsFuture.join(),
+                                        recoveredApplicationsFuture.join(),
+                                        dirtyApplicationResultsFuture.join()))
                 .handle(this::onErrorIfRunning);
     }
 
@@ -203,6 +280,82 @@ public class SessionDispatcherLeaderProcess extends AbstractDispatcherLeaderProc
         }
     }
 
+    private Collection<ApplicationResult> getDirtyApplicationResultsIfRunning() {
+        return supplyUnsynchronizedIfRunning(this::getDirtyApplicationResults)
+                .orElse(Collections.emptyList());
+    }
+
+    private Collection<ApplicationResult> getDirtyApplicationResults() {
+        try {
+            return applicationResultStore.getDirtyResults();
+        } catch (IOException e) {
+            throw new FlinkRuntimeException(
+                    "Could not retrieve ApplicationResults from ApplicationResultStore", e);
+        }
+    }
+
+    private Collection<AbstractApplication> recoverApplicationsIfRunning(
+            Set<ApplicationID> recoveredDirtyApplicationResults,
+            Collection<JobID> recoveredJobIds) {
+        return supplyUnsynchronizedIfRunning(
+                        () ->
+                                recoverApplications(
+                                        recoveredDirtyApplicationResults, recoveredJobIds))
+                .orElse(Collections.emptyList());
+    }
+
+    private Collection<AbstractApplication> recoverApplications(
+            Set<ApplicationID> recoveredDirtyJobResults, Collection<JobID> recoveredJobIds) {
+        log.info("Recover all persisted applications that are not finished, yet.");
+        final Collection<ApplicationID> applicationIds = getApplicationIds();
+        final Collection<AbstractApplication> recoveredApplications = new ArrayList<>();
+
+        for (ApplicationID applicationId : applicationIds) {
+            if (!recoveredDirtyJobResults.contains(applicationId)) {
+                tryRecoverApplication(applicationId, recoveredJobIds)
+                        .ifPresent(recoveredApplications::add);
+            } else {
+                log.info(
+                        "Skipping recovery of an application with id {}, because it already reached a globally terminal state",
+                        applicationId);
+            }
+        }
+
+        log.info("Successfully recovered {} persisted applications.", recoveredApplications.size());
+
+        return recoveredApplications;
+    }
+
+    private Collection<ApplicationID> getApplicationIds() {
+        try {
+            return applicationStore.getApplicationIds();
+        } catch (Exception e) {
+            throw new FlinkRuntimeException(
+                    "Could not retrieve application ids of persisted applications.", e);
+        }
+    }
+
+    private Optional<AbstractApplication> tryRecoverApplication(
+            ApplicationID applicationId, Collection<JobID> recoveredJobIds) {
+        log.info("Trying to recover application with id {}.", applicationId);
+        try {
+            final ApplicationStoreEntry applicationStoreEntry =
+                    applicationStore.recoverApplication(applicationId);
+            if (applicationStoreEntry == null) {
+                log.info(
+                        "Skipping recovery of application with id {}, because it already finished in a previous execution",
+                        applicationId);
+                return Optional.empty();
+            }
+
+            return Optional.ofNullable(
+                    applicationStoreEntry.getApplication(blobServer, recoveredJobIds));
+        } catch (Exception e) {
+            throw new FlinkRuntimeException(
+                    String.format("Could not recover application with id %s.", applicationId), e);
+        }
+    }
+
     @Override
     protected CompletableFuture<Void> onClose() {
         return CompletableFuture.runAsync(this::stopServices, ioExecutor);
@@ -211,6 +364,7 @@ public class SessionDispatcherLeaderProcess extends AbstractDispatcherLeaderProc
     private void stopServices() {
         try {
             executionPlanStore.stop();
+            applicationStore.stop();
         } catch (Exception e) {
             ExceptionUtils.rethrow(e);
         }
@@ -311,6 +465,102 @@ public class SessionDispatcherLeaderProcess extends AbstractDispatcherLeaderProc
                 .orElseGet(FutureUtils::completedVoidFuture);
     }
 
+    // ------------------------------------------------------------
+    // ApplicationListener
+    // ------------------------------------------------------------
+
+    @Override
+    public void onAddedApplication(ApplicationID applicationId) {
+        runIfStateIs(State.RUNNING, () -> handleAddedApplication(applicationId));
+    }
+
+    private void handleAddedApplication(ApplicationID applicationId) {
+        log.debug(
+                "Application {} has been added to the {} by another process.",
+                applicationId,
+                applicationStore.getClass().getSimpleName());
+
+        // serialize all ongoing recovery operations
+        onGoingRecoveryOperation =
+                onGoingRecoveryOperation
+                        .thenApplyAsync(
+                                ignored -> recoverApplicationIfRunning(applicationId), ioExecutor)
+                        .thenCompose(
+                                optionalApplication ->
+                                        optionalApplication
+                                                .flatMap(this::submitAddedApplicationIfRunning)
+                                                .orElse(FutureUtils.completedVoidFuture()))
+                        .handle(this::onErrorIfRunning);
+    }
+
+    private Optional<CompletableFuture<Void>> submitAddedApplicationIfRunning(
+            AbstractApplication application) {
+        return supplyIfRunning(() -> submitAddedApplication(application));
+    }
+
+    private CompletableFuture<Void> submitAddedApplication(AbstractApplication application) {
+        final DispatcherGateway dispatcherGateway = getDispatcherGatewayInternal();
+
+        return dispatcherGateway
+                .submitApplication(application, RpcUtils.INF_TIMEOUT)
+                .thenApply(FunctionUtils.nullFn())
+                .exceptionally(this::filterOutDuplicateApplicationSubmissionException);
+    }
+
+    private Void filterOutDuplicateApplicationSubmissionException(Throwable throwable) {
+        final Throwable strippedException = ExceptionUtils.stripCompletionException(throwable);
+        if (strippedException instanceof DuplicateApplicationSubmissionException) {
+            final DuplicateApplicationSubmissionException duplicateApplicationSubmissionException =
+                    (DuplicateApplicationSubmissionException) strippedException;
+
+            log.debug(
+                    "Ignore recovered application {} because the application is currently being executed.",
+                    duplicateApplicationSubmissionException.getApplicationId(),
+                    duplicateApplicationSubmissionException);
+
+            return null;
+        } else {
+            throw new CompletionException(throwable);
+        }
+    }
+
+    private Optional<AbstractApplication> recoverApplicationIfRunning(ApplicationID applicationId) {
+        return supplyUnsynchronizedIfRunning(
+                        () -> tryRecoverApplication(applicationId, Collections.emptyList()))
+                .flatMap(x -> x);
+    }
+
+    @Override
+    public void onRemovedApplication(ApplicationID applicationId) {
+        runIfStateIs(State.RUNNING, () -> handleRemovedApplication(applicationId));
+    }
+
+    private void handleRemovedApplication(ApplicationID applicationId) {
+        log.debug(
+                "Application {} has been removed from the {} by another process.",
+                applicationId,
+                applicationStore.getClass().getSimpleName());
+
+        onGoingRecoveryOperation =
+                onGoingRecoveryOperation
+                        .thenCompose(
+                                ignored ->
+                                        removeApplicationIfRunning(applicationId)
+                                                .orElse(FutureUtils.completedVoidFuture()))
+                        .handle(this::onErrorIfRunning);
+    }
+
+    private Optional<CompletableFuture<Void>> removeApplicationIfRunning(
+            ApplicationID applicationId) {
+        return supplyIfRunning(() -> removeApplication(applicationId));
+    }
+
+    private CompletableFuture<Void> removeApplication(ApplicationID applicationId) {
+        return getDispatcherService()
+                .map(dispatcherService -> dispatcherService.onRemovedApplication(applicationId))
+                .orElseGet(FutureUtils::completedVoidFuture);
+    }
+
     // ---------------------------------------------------------------
     // Factory methods
     // ---------------------------------------------------------------
@@ -320,6 +570,9 @@ public class SessionDispatcherLeaderProcess extends AbstractDispatcherLeaderProc
             DispatcherGatewayServiceFactory dispatcherFactory,
             ExecutionPlanStore executionPlanStore,
             JobResultStore jobResultStore,
+            ApplicationStore applicationStore,
+            ApplicationResultStore applicationResultStore,
+            BlobServer blobServer,
             Executor ioExecutor,
             FatalErrorHandler fatalErrorHandler) {
         return new SessionDispatcherLeaderProcess(
@@ -327,6 +580,9 @@ public class SessionDispatcherLeaderProcess extends AbstractDispatcherLeaderProc
                 dispatcherFactory,
                 executionPlanStore,
                 jobResultStore,
+                applicationStore,
+                applicationResultStore,
+                blobServer,
                 ioExecutor,
                 fatalErrorHandler);
     }

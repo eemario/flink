@@ -18,6 +18,9 @@
 
 package org.apache.flink.runtime.jobmanager;
 
+import org.apache.flink.runtime.application.ApplicationResultStore;
+import org.apache.flink.runtime.application.ApplicationStore;
+import org.apache.flink.runtime.blob.BlobServer;
 import org.apache.flink.runtime.highavailability.HighAvailabilityServices;
 import org.apache.flink.runtime.highavailability.JobResultStore;
 import org.apache.flink.util.FlinkRuntimeException;
@@ -30,9 +33,12 @@ import org.apache.flink.util.function.SupplierWithException;
 public class HaServicesJobPersistenceComponentFactory implements JobPersistenceComponentFactory {
     private final HighAvailabilityServices highAvailabilityServices;
 
+    private final BlobServer blobServer;
+
     public HaServicesJobPersistenceComponentFactory(
-            HighAvailabilityServices highAvailabilityServices) {
+            HighAvailabilityServices highAvailabilityServices, BlobServer blobServer) {
         this.highAvailabilityServices = highAvailabilityServices;
+        this.blobServer = blobServer;
     }
 
     @Override
@@ -43,6 +49,22 @@ public class HaServicesJobPersistenceComponentFactory implements JobPersistenceC
     @Override
     public JobResultStore createJobResultStore() {
         return create(highAvailabilityServices::getJobResultStore, JobResultStore.class);
+    }
+
+    @Override
+    public ApplicationStore createApplicationStore() {
+        return create(highAvailabilityServices::getApplicationStore, ApplicationStore.class);
+    }
+
+    @Override
+    public ApplicationResultStore createApplicationResultStore() {
+        return create(
+                highAvailabilityServices::getApplicationResultStore, ApplicationResultStore.class);
+    }
+
+    @Override
+    public BlobServer createBlobServer() {
+        return blobServer;
     }
 
     private <T> T create(SupplierWithException<T, ? extends Exception> supplier, Class<T> clazz) {

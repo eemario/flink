@@ -31,8 +31,10 @@ import org.apache.flink.core.failure.FailureEnricher;
 import org.apache.flink.core.testutils.FlinkAssertions;
 import org.apache.flink.core.testutils.OneShotLatch;
 import org.apache.flink.runtime.application.AbstractApplication;
+import org.apache.flink.runtime.application.ApplicationStoreEntry;
 import org.apache.flink.runtime.blob.BlobServer;
 import org.apache.flink.runtime.blob.PermanentBlobKey;
+import org.apache.flink.runtime.blob.PermanentBlobService;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsSnapshot;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsTracker;
 import org.apache.flink.runtime.checkpoint.Checkpoints;
@@ -2272,7 +2274,8 @@ public class DispatcherTest extends AbstractDispatcherTest {
         }
     }
 
-    private static class TestingApplication extends AbstractApplication {
+    private static class TestingApplication extends AbstractApplication
+            implements ApplicationStoreEntry {
         private final Function<ExecuteParams, CompletableFuture<Acknowledge>> executeFunction;
 
         public TestingApplication(
@@ -2304,6 +2307,17 @@ public class DispatcherTest extends AbstractDispatcherTest {
         @Override
         public String getName() {
             return "TestingApplication";
+        }
+
+        @Override
+        public ApplicationStoreEntry toApplicationStoreEntry() {
+            return this;
+        }
+
+        @Override
+        public AbstractApplication getApplication(
+                PermanentBlobService blobService, Collection<JobID> recoveredJobIds) {
+            return this;
         }
 
         public static class ExecuteParams {

@@ -25,6 +25,8 @@ import org.apache.flink.kubernetes.configuration.KubernetesLeaderElectionConfigu
 import org.apache.flink.kubernetes.kubeclient.FlinkKubeClient;
 import org.apache.flink.kubernetes.kubeclient.KubernetesConfigMapSharedWatcher;
 import org.apache.flink.kubernetes.utils.KubernetesUtils;
+import org.apache.flink.runtime.application.ApplicationStore;
+import org.apache.flink.runtime.application.FileSystemApplicationResultStore;
 import org.apache.flink.runtime.blob.BlobStoreService;
 import org.apache.flink.runtime.checkpoint.CheckpointRecoveryFactory;
 import org.apache.flink.runtime.highavailability.AbstractHaServices;
@@ -104,7 +106,8 @@ public class KubernetesLeaderElectionHaServices extends AbstractHaServices {
                         configuration),
                 ioExecutor,
                 blobStoreService,
-                FileSystemJobResultStore.fromConfiguration(configuration, ioExecutor));
+                FileSystemJobResultStore.fromConfiguration(configuration, ioExecutor),
+                FileSystemApplicationResultStore.fromConfiguration(configuration, ioExecutor));
 
         this.kubeClient = checkNotNull(kubeClient);
         this.clusterId = checkNotNull(clusterId);
@@ -153,6 +156,12 @@ public class KubernetesLeaderElectionHaServices extends AbstractHaServices {
     @Override
     protected ExecutionPlanStore createExecutionPlanStore() throws Exception {
         return KubernetesUtils.createExecutionPlanStore(
+                configuration, kubeClient, getClusterConfigMap(), lockIdentity);
+    }
+
+    @Override
+    protected ApplicationStore createApplicationStore() throws Exception {
+        return KubernetesUtils.createApplicationStore(
                 configuration, kubeClient, getClusterConfigMap(), lockIdentity);
     }
 

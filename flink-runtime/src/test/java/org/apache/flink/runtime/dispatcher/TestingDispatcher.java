@@ -20,8 +20,15 @@ package org.apache.flink.runtime.dispatcher;
 
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.runtime.application.AbstractApplication;
+import org.apache.flink.runtime.application.ApplicationResult;
+import org.apache.flink.runtime.application.ApplicationResultStore;
+import org.apache.flink.runtime.application.ApplicationWriter;
+import org.apache.flink.runtime.application.EmbeddedApplicationResultStore;
 import org.apache.flink.runtime.blob.BlobServer;
+import org.apache.flink.runtime.dispatcher.cleanup.ApplicationResourceCleanerFactory;
 import org.apache.flink.runtime.dispatcher.cleanup.CleanupRunnerFactory;
+import org.apache.flink.runtime.dispatcher.cleanup.DispatcherApplicationResourceCleanerFactory;
 import org.apache.flink.runtime.dispatcher.cleanup.DispatcherResourceCleanerFactory;
 import org.apache.flink.runtime.dispatcher.cleanup.ResourceCleanerFactory;
 import org.apache.flink.runtime.dispatcher.cleanup.TestingCleanupRunnerFactory;
@@ -70,6 +77,8 @@ class TestingDispatcher extends Dispatcher {
             DispatcherId fencingToken,
             Collection<ExecutionPlan> recoveredJobs,
             Collection<JobResult> recoveredDirtyJobs,
+            Collection<AbstractApplication> recoveredApplications,
+            Collection<ApplicationResult> recoveredDirtyApplicationResults,
             Configuration configuration,
             HighAvailabilityServices highAvailabilityServices,
             GatewayRetriever<ResourceManagerGateway> resourceManagerGatewayRetriever,
@@ -78,6 +87,8 @@ class TestingDispatcher extends Dispatcher {
             FatalErrorHandler fatalErrorHandler,
             ExecutionPlanWriter executionPlanWriter,
             JobResultStore jobResultStore,
+            ApplicationWriter applicationWriter,
+            ApplicationResultStore applicationResultStore,
             JobManagerMetricGroup jobManagerMetricGroup,
             @Nullable String metricServiceQueryAddress,
             Executor ioExecutor,
@@ -88,13 +99,16 @@ class TestingDispatcher extends Dispatcher {
             DispatcherBootstrapFactory dispatcherBootstrapFactory,
             DispatcherOperationCaches dispatcherOperationCaches,
             JobManagerRunnerRegistry jobManagerRunnerRegistry,
-            ResourceCleanerFactory resourceCleanerFactory)
+            ResourceCleanerFactory resourceCleanerFactory,
+            ApplicationResourceCleanerFactory applicationResourceCleanerFactory)
             throws Exception {
         super(
                 rpcService,
                 fencingToken,
                 recoveredJobs,
                 recoveredDirtyJobs,
+                recoveredApplications,
+                recoveredDirtyApplicationResults,
                 dispatcherBootstrapFactory,
                 new DispatcherServices(
                         configuration,
@@ -110,12 +124,15 @@ class TestingDispatcher extends Dispatcher {
                         jobManagerMetricGroup,
                         executionPlanWriter,
                         jobResultStore,
+                        applicationWriter,
+                        applicationResultStore,
                         jobManagerRunnerFactory,
                         cleanupRunnerFactory,
                         ioExecutor,
                         Collections.emptySet()),
                 jobManagerRunnerRegistry,
-                resourceCleanerFactory);
+                resourceCleanerFactory,
+                applicationResourceCleanerFactory);
 
         this.startFuture = new CompletableFuture<>();
     }
@@ -169,6 +186,8 @@ class TestingDispatcher extends Dispatcher {
         private DispatcherId fencingToken = DispatcherId.generate();
         private Collection<ExecutionPlan> recoveredJobs = Collections.emptyList();
         @Nullable private Collection<JobResult> recoveredDirtyJobs = null;
+        private Collection<AbstractApplication> recoveredApplications = Collections.emptyList();
+        @Nullable private Collection<ApplicationResult> recoveredDirtyApplicationResults = null;
         private HighAvailabilityServices highAvailabilityServices =
                 new TestingHighAvailabilityServices();
 
@@ -180,6 +199,10 @@ class TestingDispatcher extends Dispatcher {
 
         private ExecutionPlanWriter executionPlanWriter = NoOpExecutionPlanWriter.INSTANCE;
         private JobResultStore jobResultStore = new EmbeddedJobResultStore();
+
+        private ApplicationWriter applicationWriter = NoOpApplicationWriter.INSTANCE;
+        private ApplicationResultStore applicationResultStore =
+                new EmbeddedApplicationResultStore();
 
         private Configuration configuration = new Configuration();
 
@@ -204,6 +227,7 @@ class TestingDispatcher extends Dispatcher {
         private JobManagerRunnerRegistry jobManagerRunnerRegistry =
                 new DefaultJobManagerRunnerRegistry(1);
         @Nullable private ResourceCleanerFactory resourceCleanerFactory;
+        @Nullable private ApplicationResourceCleanerFactory applicationResourceCleanerFactory;
 
         public Builder setFencingToken(DispatcherId fencingToken) {
             this.fencingToken = fencingToken;
@@ -337,6 +361,14 @@ class TestingDispatcher extends Dispatcher {
                     jobManagerMetricGroup);
         }
 
+        private ApplicationResourceCleanerFactory createDefaultApplicationResourceCleanerFactory() {
+            return new DispatcherApplicationResourceCleanerFactory(
+                    ioExecutor,
+                    TestingRetryStrategies.NO_RETRY_STRATEGY,
+                    applicationWriter,
+                    blobServer);
+        }
+
         public TestingDispatcher build(RpcService rpcService) throws Exception {
             return new TestingDispatcher(
                     rpcService,
@@ -345,6 +377,10 @@ class TestingDispatcher extends Dispatcher {
                     recoveredDirtyJobs == null
                             ? jobResultStore.getDirtyResults()
                             : recoveredDirtyJobs,
+                    recoveredApplications,
+                    recoveredDirtyApplicationResults == null
+                            ? applicationResultStore.getDirtyResults()
+                            : recoveredDirtyApplicationResults,
                     configuration,
                     highAvailabilityServices,
                     resourceManagerGatewayRetriever,
@@ -355,6 +391,8 @@ class TestingDispatcher extends Dispatcher {
                     fatalErrorHandler,
                     executionPlanWriter,
                     jobResultStore,
+                    applicationWriter,
+                    applicationResultStore,
                     jobManagerMetricGroup,
                     metricServiceQueryAddress,
                     ioExecutor,
@@ -367,7 +405,10 @@ class TestingDispatcher extends Dispatcher {
                     jobManagerRunnerRegistry,
                     resourceCleanerFactory != null
                             ? resourceCleanerFactory
-                            : createDefaultResourceCleanerFactory());
+                            : createDefaultResourceCleanerFactory(),
+                    applicationResourceCleanerFactory != null
+                            ? applicationResourceCleanerFactory
+                            : createDefaultApplicationResourceCleanerFactory());
         }
     }
 }

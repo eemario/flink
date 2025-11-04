@@ -19,6 +19,8 @@
 package org.apache.flink.runtime.highavailability;
 
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.runtime.application.ApplicationResultStore;
+import org.apache.flink.runtime.application.ApplicationStore;
 import org.apache.flink.runtime.blob.BlobStore;
 import org.apache.flink.runtime.checkpoint.CheckpointRecoveryFactory;
 import org.apache.flink.runtime.dispatcher.cleanup.GloballyCleanableResource;
@@ -167,6 +169,22 @@ public interface HighAvailabilityServices
      * @throws Exception if job result store could not be created
      */
     JobResultStore getJobResultStore() throws Exception;
+
+    /**
+     * Gets the store that holds information about applications.
+     *
+     * @return Store of applications
+     * @throws Exception if application store could not be created
+     */
+    ApplicationStore getApplicationStore() throws Exception;
+
+    /**
+     * Gets the store that holds information about the state of finished applications.
+     *
+     * @return Store of finished application results
+     * @throws Exception if application result store could not be created
+     */
+    ApplicationResultStore getApplicationResultStore() throws Exception;
 
     /**
      * Creates the BLOB store in which BLOBs are stored in a highly-available fashion.

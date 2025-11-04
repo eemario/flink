@@ -18,6 +18,9 @@
 
 package org.apache.flink.runtime.jobmanager;
 
+import org.apache.flink.runtime.application.ApplicationResultStore;
+import org.apache.flink.runtime.application.ApplicationStore;
+import org.apache.flink.runtime.blob.BlobServer;
 import org.apache.flink.runtime.highavailability.JobResultStore;
 import org.apache.flink.util.Preconditions;
 
@@ -29,11 +32,23 @@ public class TestingJobPersistenceComponentFactory implements JobPersistenceComp
 
     private final ExecutionPlanStore executionPlanStore;
     private final JobResultStore jobResultStore;
+    private final ApplicationStore applicationStore;
+    private final ApplicationResultStore applicationResultStore;
+
+    public TestingJobPersistenceComponentFactory(
+            ExecutionPlanStore executionPlanStore,
+            JobResultStore jobResultStore,
+            ApplicationStore applicationStore,
+            ApplicationResultStore applicationResultStore) {
+        this.executionPlanStore = Preconditions.checkNotNull(executionPlanStore);
+        this.jobResultStore = Preconditions.checkNotNull(jobResultStore);
+        this.applicationStore = Preconditions.checkNotNull(applicationStore);
+        this.applicationResultStore = Preconditions.checkNotNull(applicationResultStore);
+    }
 
     public TestingJobPersistenceComponentFactory(
             ExecutionPlanStore executionPlanStore, JobResultStore jobResultStore) {
-        this.executionPlanStore = Preconditions.checkNotNull(executionPlanStore);
-        this.jobResultStore = Preconditions.checkNotNull(jobResultStore);
+        this(executionPlanStore, jobResultStore, null, null);
     }
 
     @Override
@@ -44,5 +59,20 @@ public class TestingJobPersistenceComponentFactory implements JobPersistenceComp
     @Override
     public JobResultStore createJobResultStore() {
         return jobResultStore;
+    }
+
+    @Override
+    public ApplicationStore createApplicationStore() {
+        return applicationStore;
+    }
+
+    @Override
+    public ApplicationResultStore createApplicationResultStore() {
+        return applicationResultStore;
+    }
+
+    @Override
+    public BlobServer createBlobServer() {
+        return null;
     }
 }

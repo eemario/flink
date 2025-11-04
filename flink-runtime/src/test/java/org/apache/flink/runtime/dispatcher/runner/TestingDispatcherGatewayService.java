@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.dispatcher.runner;
 
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.clusterframework.ApplicationStatus;
 import org.apache.flink.runtime.dispatcher.DispatcherGateway;
@@ -60,6 +61,11 @@ class TestingDispatcherGatewayService
     @Override
     public CompletableFuture<Void> onRemovedExecutionPlan(JobID jobId) {
         return onRemovedExecutionPlanFunction.apply(jobId);
+    }
+
+    @Override
+    public CompletableFuture<Void> onRemovedApplication(ApplicationID applicationId) {
+        throw new UnsupportedOperationException();
     }
 
     @Override

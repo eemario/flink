@@ -25,6 +25,10 @@ import org.apache.flink.client.program.PackagedProgram;
 import org.apache.flink.configuration.ApplicationOptionsInternal;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.DeploymentOptions;
+import org.apache.flink.runtime.application.AbstractApplication;
+import org.apache.flink.runtime.application.ApplicationResult;
+import org.apache.flink.runtime.application.ApplicationResultStore;
+import org.apache.flink.runtime.application.ApplicationWriter;
 import org.apache.flink.runtime.dispatcher.ApplicationBootstrap;
 import org.apache.flink.runtime.dispatcher.Dispatcher;
 import org.apache.flink.runtime.dispatcher.DispatcherFactory;
@@ -89,8 +93,12 @@ public class ApplicationDispatcherGatewayServiceFactory
             DispatcherId fencingToken,
             Collection<ExecutionPlan> recoveredJobs,
             Collection<JobResult> recoveredDirtyJobResults,
+            Collection<AbstractApplication> recoveredApplications,
+            Collection<ApplicationResult> recoveredDirtyApplicationResults,
             ExecutionPlanWriter executionPlanWriter,
-            JobResultStore jobResultStore) {
+            JobResultStore jobResultStore,
+            ApplicationWriter applicationWriter,
+            ApplicationResultStore applicationResultStore) {
 
         final List<JobID> recoveredJobIds = getRecoveredJobIds(recoveredJobs);
 
@@ -122,12 +130,16 @@ public class ApplicationDispatcherGatewayServiceFactory
                             fencingToken,
                             recoveredJobs,
                             recoveredDirtyJobResults,
+                            recoveredApplications,
+                            recoveredDirtyApplicationResults,
                             (dispatcherGateway, scheduledExecutor, errorHandler) ->
                                     new ApplicationBootstrap(bootstrapApplication),
                             PartialDispatcherServicesWithJobPersistenceComponents.from(
                                     partialDispatcherServices,
                                     executionPlanWriter,
-                                    jobResultStore));
+                                    jobResultStore,
+                                    applicationWriter,
+                                    applicationResultStore));
         } catch (Exception e) {
             throw new FlinkRuntimeException("Could not create the Dispatcher rpc endpoint.", e);
         }

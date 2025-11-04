@@ -25,10 +25,14 @@ import org.apache.flink.client.deployment.application.executors.EmbeddedExecutor
 import org.apache.flink.client.program.PackagedProgram;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.DeploymentOptions;
+import org.apache.flink.configuration.PipelineOptionsInternal;
 import org.apache.flink.configuration.StateRecoveryOptions;
 import org.apache.flink.core.execution.RecoveryClaimMode;
+import org.apache.flink.runtime.blob.BlobClient;
+import org.apache.flink.runtime.blob.PermanentBlobKey;
 import org.apache.flink.runtime.dispatcher.DispatcherGateway;
 import org.apache.flink.runtime.jobgraph.SavepointRestoreSettings;
+import org.apache.flink.runtime.jobmanager.HighAvailabilityMode;
 import org.apache.flink.runtime.rest.handler.AbstractRestHandler;
 import org.apache.flink.runtime.rest.handler.HandlerRequest;
 import org.apache.flink.runtime.rest.handler.RestHandlerException;
@@ -40,10 +44,12 @@ import org.apache.flink.shaded.netty4.io.netty.handler.codec.http.HttpResponseSt
 
 import javax.annotation.Nonnull;
 
+import java.net.InetSocketAddress;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
@@ -97,34 +103,58 @@ public class JarRunApplicationHandler
                 getSavepointRestoreSettings(request, effectiveConfiguration),
                 effectiveConfiguration);
 
-        final PackagedProgram program = context.toPackagedProgram(effectiveConfiguration);
-
         ApplicationID applicationId =
                 context.getApplicationId() == null
                         ? ApplicationID.generate()
                         : context.getApplicationId();
-        PackagedProgramApplication application =
-                new PackagedProgramApplication(
-                        applicationId,
-                        program,
-                        Collections.emptyList(),
-                        effectiveConfiguration,
-                        false,
-                        true,
-                        false,
-                        false);
 
-        return gateway.submitApplication(application, timeout)
-                .handle(
-                        (acknowledge, throwable) -> {
-                            if (throwable != null) {
-                                throw new CompletionException(
-                                        new RestHandlerException(
-                                                "Could not submit application.",
-                                                HttpResponseStatus.BAD_REQUEST,
-                                                throwable));
+        maybeFixBaseJobId(effectiveConfiguration, applicationId);
+
+        final PackagedProgram program = context.toPackagedProgram(effectiveConfiguration);
+
+        return gateway.getBlobServerPort(timeout)
+                .thenApply(
+                        blobServerPort ->
+                                new InetSocketAddress(gateway.getHostname(), blobServerPort))
+                .thenCompose(
+                        blobServerAddress -> {
+                            PermanentBlobKey userJarBlobKey;
+                            try (BlobClient blobClient =
+                                    new BlobClient(blobServerAddress, configuration)) {
+                                userJarBlobKey =
+                                        blobClient.uploadFile(
+                                                applicationId,
+                                                new org.apache.flink.core.fs.Path(
+                                                        context.getJarFile().toString()));
+                            } catch (Exception e) {
+                                throw new CompletionException(e);
                             }
-                            return new JarRunApplicationResponseBody(applicationId);
+
+                            PackagedProgramApplication application =
+                                    new PackagedProgramApplication(
+                                            applicationId,
+                                            program,
+                                            Collections.emptyList(),
+                                            effectiveConfiguration,
+                                            false,
+                                            true,
+                                            false,
+                                            false,
+                                            userJarBlobKey);
+
+                            return gateway.submitApplication(application, timeout)
+                                    .handle(
+                                            (acknowledge, throwable) -> {
+                                                if (throwable != null) {
+                                                    throw new CompletionException(
+                                                            new RestHandlerException(
+                                                                    "Could not submit application.",
+                                                                    HttpResponseStatus.BAD_REQUEST,
+                                                                    throwable));
+                                                }
+                                                return new JarRunApplicationResponseBody(
+                                                        applicationId);
+                                            });
                         });
     }
 
@@ -171,5 +201,17 @@ public class JarRunApplicationHandler
             savepointRestoreSettings = SavepointRestoreSettings.none();
         }
         return savepointRestoreSettings;
+    }
+
+    private void maybeFixBaseJobId(
+            final Configuration configuration, final ApplicationID applicationId) {
+        if (HighAvailabilityMode.isHighAvailabilityModeActivated(configuration)) {
+            final Optional<String> configuredJobId =
+                    configuration.getOptional(PipelineOptionsInternal.PIPELINE_FIXED_JOB_ID);
+            if (!configuredJobId.isPresent()) {
+                configuration.set(
+                        PipelineOptionsInternal.PIPELINE_FIXED_JOB_ID, applicationId.toHexString());
+            }
+        }
     }
 }

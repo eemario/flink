@@ -20,6 +20,8 @@ package org.apache.flink.runtime.dispatcher;
 
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.failure.FailureEnricher;
+import org.apache.flink.runtime.application.ApplicationResultStore;
+import org.apache.flink.runtime.application.ApplicationWriter;
 import org.apache.flink.runtime.blob.BlobServer;
 import org.apache.flink.runtime.dispatcher.cleanup.CleanupRunnerFactory;
 import org.apache.flink.runtime.heartbeat.HeartbeatServices;
@@ -66,6 +68,10 @@ public class DispatcherServices {
 
     private final JobResultStore jobResultStore;
 
+    private final ApplicationWriter applicationWriter;
+
+    private final ApplicationResultStore applicationResultStore;
+
     private final JobManagerRunnerFactory jobManagerRunnerFactory;
 
     private final CleanupRunnerFactory cleanupRunnerFactory;
@@ -88,6 +94,8 @@ public class DispatcherServices {
             JobManagerMetricGroup jobManagerMetricGroup,
             ExecutionPlanWriter planWriter,
             JobResultStore jobResultStore,
+            ApplicationWriter applicationWriter,
+            ApplicationResultStore applicationResultStore,
             JobManagerRunnerFactory jobManagerRunnerFactory,
             CleanupRunnerFactory cleanupRunnerFactory,
             Executor ioExecutor,
@@ -111,6 +119,9 @@ public class DispatcherServices {
                 Preconditions.checkNotNull(jobManagerMetricGroup, "JobManagerMetricGroup");
         this.executionPlanWriter = Preconditions.checkNotNull(planWriter, "ExecutionPlanWriter");
         this.jobResultStore = Preconditions.checkNotNull(jobResultStore, "JobResultStore");
+        this.applicationWriter = Preconditions.checkNotNull(applicationWriter, "ApplicationWriter");
+        this.applicationResultStore =
+                Preconditions.checkNotNull(applicationResultStore, "ApplicationResultStore");
         this.jobManagerRunnerFactory =
                 Preconditions.checkNotNull(jobManagerRunnerFactory, "JobManagerRunnerFactory");
         this.cleanupRunnerFactory =
@@ -172,6 +183,14 @@ public class DispatcherServices {
         return jobResultStore;
     }
 
+    public ApplicationWriter getApplicationWriter() {
+        return applicationWriter;
+    }
+
+    public ApplicationResultStore getApplicationResultStore() {
+        return applicationResultStore;
+    }
+
     JobManagerRunnerFactory getJobManagerRunnerFactory() {
         return jobManagerRunnerFactory;
     }
@@ -212,6 +231,8 @@ public class DispatcherServices {
                         .create(),
                 partialDispatcherServicesWithJobPersistenceComponents.getExecutionPlanWriter(),
                 partialDispatcherServicesWithJobPersistenceComponents.getJobResultStore(),
+                partialDispatcherServicesWithJobPersistenceComponents.getApplicationWriter(),
+                partialDispatcherServicesWithJobPersistenceComponents.getApplicationResultStore(),
                 jobManagerRunnerFactory,
                 cleanupRunnerFactory,
                 partialDispatcherServicesWithJobPersistenceComponents.getIoExecutor(),

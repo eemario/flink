@@ -20,6 +20,8 @@ package org.apache.flink.runtime.dispatcher;
 
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.failure.FailureEnricher;
+import org.apache.flink.runtime.application.ApplicationResultStore;
+import org.apache.flink.runtime.application.ApplicationWriter;
 import org.apache.flink.runtime.blob.BlobServer;
 import org.apache.flink.runtime.heartbeat.HeartbeatServices;
 import org.apache.flink.runtime.highavailability.HighAvailabilityServices;
@@ -40,6 +42,8 @@ public class PartialDispatcherServicesWithJobPersistenceComponents
 
     private final ExecutionPlanWriter executionPlanWriter;
     private final JobResultStore jobResultStore;
+    private final ApplicationWriter applicationWriter;
+    private final ApplicationResultStore applicationResultStore;
 
     private PartialDispatcherServicesWithJobPersistenceComponents(
             Configuration configuration,
@@ -56,7 +60,9 @@ public class PartialDispatcherServicesWithJobPersistenceComponents
             DispatcherOperationCaches operationCaches,
             Collection<FailureEnricher> failureEnrichers,
             ExecutionPlanWriter executionPlanWriter,
-            JobResultStore jobResultStore) {
+            JobResultStore jobResultStore,
+            ApplicationWriter applicationWriter,
+            ApplicationResultStore applicationResultStore) {
         super(
                 configuration,
                 highAvailabilityServices,
@@ -73,6 +79,8 @@ public class PartialDispatcherServicesWithJobPersistenceComponents
                 failureEnrichers);
         this.executionPlanWriter = executionPlanWriter;
         this.jobResultStore = jobResultStore;
+        this.applicationWriter = applicationWriter;
+        this.applicationResultStore = applicationResultStore;
     }
 
     public ExecutionPlanWriter getExecutionPlanWriter() {
@@ -83,10 +91,20 @@ public class PartialDispatcherServicesWithJobPersistenceComponents
         return jobResultStore;
     }
 
+    public ApplicationWriter getApplicationWriter() {
+        return applicationWriter;
+    }
+
+    public ApplicationResultStore getApplicationResultStore() {
+        return applicationResultStore;
+    }
+
     public static PartialDispatcherServicesWithJobPersistenceComponents from(
             PartialDispatcherServices partialDispatcherServices,
             ExecutionPlanWriter executionPlanWriter,
-            JobResultStore jobResultStore) {
+            JobResultStore jobResultStore,
+            ApplicationWriter applicationWriter,
+            ApplicationResultStore applicationResultStore) {
         return new PartialDispatcherServicesWithJobPersistenceComponents(
                 partialDispatcherServices.getConfiguration(),
                 partialDispatcherServices.getHighAvailabilityServices(),
@@ -102,6 +120,8 @@ public class PartialDispatcherServicesWithJobPersistenceComponents
                 partialDispatcherServices.getOperationCaches(),
                 partialDispatcherServices.getFailureEnrichers(),
                 executionPlanWriter,
-                jobResultStore);
+                jobResultStore,
+                applicationWriter,
+                applicationResultStore);
     }
 }

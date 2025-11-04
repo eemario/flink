@@ -22,6 +22,7 @@ import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.ApplicationState;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
+import org.apache.flink.runtime.blob.PermanentBlobService;
 import org.apache.flink.runtime.dispatcher.DispatcherGateway;
 import org.apache.flink.runtime.executiongraph.JobStatusListener;
 import org.apache.flink.runtime.messages.Acknowledge;
@@ -33,6 +34,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import java.util.Collection;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
@@ -41,7 +43,8 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /** An implementation of {@link AbstractApplication} designed for executing a single job. */
 @Internal
-public class SingleJobApplication extends AbstractApplication implements JobStatusListener {
+public class SingleJobApplication extends AbstractApplication
+        implements JobStatusListener, ApplicationStoreEntry {
 
     private static final Logger LOG = LoggerFactory.getLogger(SingleJobApplication.class);
 
@@ -55,10 +58,31 @@ public class SingleJobApplication extends AbstractApplication implements JobStat
 
     private transient FatalErrorHandler errorHandler;
 
+    private transient boolean isRecovered;
+
     public SingleJobApplication(ExecutionPlan executionPlan, Duration rpcTimeout) {
         super(executionPlan.getApplicationId());
         this.executionPlan = executionPlan;
         this.rpcTimeout = rpcTimeout;
+    }
+
+    public void setIsRecovered(boolean isRecovered) {
+        this.isRecovered = isRecovered;
+    }
+
+    public ExecutionPlan getExecutionPlan() {
+        return executionPlan;
+    }
+
+    @Override
+    public ApplicationStoreEntry toApplicationStoreEntry() {
+        return this;
+    }
+
+    @Override
+    public AbstractApplication getApplication(
+            PermanentBlobService blobService, Collection<JobID> recoveredJobIds) {
+        return this;
     }
 
     @Override
@@ -72,6 +96,10 @@ public class SingleJobApplication extends AbstractApplication implements JobStat
         this.dispatcherGateway = dispatcherGateway;
         this.mainThreadExecutor = mainThreadExecutor;
         this.errorHandler = errorHandler;
+
+        if (isRecovered) {
+            return CompletableFuture.completedFuture(Acknowledge.get());
+        }
 
         return dispatcherGateway
                 .submitJob(executionPlan, rpcTimeout)

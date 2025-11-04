@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.blob;
 
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.util.function.TriFunctionWithException;
 
@@ -62,8 +63,19 @@ public class TestingBlobStore implements BlobStore {
     }
 
     @Override
+    public boolean put(File localFile, ApplicationID applicationId, BlobKey blobKey)
+            throws IOException {
+        return false;
+    }
+
+    @Override
     public boolean delete(JobID jobId, BlobKey blobKey) {
         return deleteFunction.apply(jobId, blobKey);
+    }
+
+    @Override
+    public boolean delete(ApplicationID applicationId, BlobKey blobKey) {
+        return true;
     }
 
     @Override
@@ -72,7 +84,18 @@ public class TestingBlobStore implements BlobStore {
     }
 
     @Override
+    public boolean deleteAll(ApplicationID applicationId) {
+        return true;
+    }
+
+    @Override
     public boolean get(JobID jobId, BlobKey blobKey, File localFile) throws IOException {
         return getFunction.apply(jobId, blobKey, localFile);
+    }
+
+    @Override
+    public boolean get(ApplicationID applicationId, BlobKey blobKey, File localFile)
+            throws IOException {
+        return false;
     }
 }

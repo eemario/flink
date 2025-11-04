@@ -20,6 +20,8 @@ package org.apache.flink.runtime.application;
 
 import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.ApplicationState;
+import org.apache.flink.api.common.JobID;
+import org.apache.flink.runtime.blob.PermanentBlobService;
 import org.apache.flink.runtime.dispatcher.DispatcherGateway;
 import org.apache.flink.runtime.messages.Acknowledge;
 import org.apache.flink.runtime.rpc.FatalErrorHandler;
@@ -31,6 +33,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -212,7 +215,8 @@ public class AbstractApplicationTest {
                 listener.getTargetStates());
     }
 
-    private static class MockApplication extends AbstractApplication {
+    private static class MockApplication extends AbstractApplication
+            implements ApplicationStoreEntry {
         public MockApplication(ApplicationID applicationId) {
             super(applicationId);
         }
@@ -235,6 +239,17 @@ public class AbstractApplicationTest {
         @Override
         public String getName() {
             return "Mock Application";
+        }
+
+        @Override
+        public ApplicationStoreEntry toApplicationStoreEntry() {
+            return this;
+        }
+
+        @Override
+        public AbstractApplication getApplication(
+                PermanentBlobService blobService, Collection<JobID> recoveredJobIds) {
+            return this;
         }
     }
 

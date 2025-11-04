@@ -54,6 +54,9 @@ public class SessionDispatcherLeaderProcessFactory implements DispatcherLeaderPr
                 dispatcherGatewayServiceFactory,
                 jobPersistenceComponentFactory.createExecutionPlanStore(),
                 jobPersistenceComponentFactory.createJobResultStore(),
+                jobPersistenceComponentFactory.createApplicationStore(),
+                jobPersistenceComponentFactory.createApplicationResultStore(),
+                jobPersistenceComponentFactory.createBlobServer(),
                 ioExecutor,
                 fatalErrorHandler);
     }

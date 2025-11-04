@@ -45,6 +45,13 @@ public class BlobServerProtocol {
      */
     static final byte GET_OPERATION = 1;
 
+    /**
+     * Internal code to identify a STAT operation.
+     *
+     * <p>Note: previously, there was also <tt>DELETE_OPERATION</tt> (code <tt>2</tt>).
+     */
+    static final byte STAT_OPERATION = 3;
+
     /** Internal code to identify a successful operation. */
     static final byte RETURN_OKAY = 0;
 
@@ -64,6 +71,9 @@ public class BlobServerProtocol {
      * <p>Note: This is equal to the previous <tt>JOB_ID_SCOPE</tt> (code <tt>2</tt>).
      */
     static final byte JOB_RELATED_CONTENT = 2;
+
+    /** Internal code to identify an application-related BLOBs. */
+    static final byte APPLICATION_RELATED_CONTENT = 3;
 
     // --------------------------------------------------------------------------------------------
 

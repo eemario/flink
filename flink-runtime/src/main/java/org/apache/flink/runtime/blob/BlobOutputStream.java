@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.blob;
 
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
 
 import org.slf4j.Logger;
@@ -33,6 +34,7 @@ import java.net.Socket;
 import java.security.MessageDigest;
 import java.util.Arrays;
 
+import static org.apache.flink.runtime.blob.BlobServerProtocol.APPLICATION_RELATED_CONTENT;
 import static org.apache.flink.runtime.blob.BlobServerProtocol.BUFFER_SIZE;
 import static org.apache.flink.runtime.blob.BlobServerProtocol.JOB_RELATED_CONTENT;
 import static org.apache.flink.runtime.blob.BlobServerProtocol.JOB_UNRELATED_CONTENT;
@@ -55,6 +57,17 @@ final class BlobOutputStream extends OutputStream {
     private final MessageDigest md;
 
     BlobOutputStream(JobID jobID, BlobKey.BlobType blobType, Socket socket) throws IOException {
+        this(blobType, socket);
+        sendPutHeader(socketStream, jobID, null, blobType);
+    }
+
+    BlobOutputStream(ApplicationID applicationID, BlobKey.BlobType blobType, Socket socket)
+            throws IOException {
+        this(blobType, socket);
+        sendPutHeader(socketStream, null, applicationID, blobType);
+    }
+
+    BlobOutputStream(BlobKey.BlobType blobType, Socket socket) throws IOException {
         this.blobType = blobType;
 
         if (socket.isClosed()) {
@@ -66,7 +79,6 @@ final class BlobOutputStream extends OutputStream {
         this.socket = socket;
         this.socketStream = socket.getOutputStream();
         this.md = BlobUtils.createMessageDigest();
-        sendPutHeader(socketStream, jobID, blobType);
     }
 
     @Override
@@ -112,6 +124,37 @@ final class BlobOutputStream extends OutputStream {
      *
      * @param outputStream the output stream to write the PUT header data to
      * @param jobId the ID of job the BLOB belongs to (or <tt>null</tt> if job-unrelated)
+     * @param applicationId the ID of application the BLOB belongs to (or <tt>null</tt> if not
+     *     application-related)
+     * @param blobType whether the BLOB should become permanent or transient
+     * @throws IOException thrown if an I/O error occurs while writing the header data to the output
+     *     stream
+     */
+    private static void sendPutHeader(
+            OutputStream outputStream,
+            @Nullable JobID jobId,
+            @Nullable ApplicationID applicationId,
+            BlobKey.BlobType blobType)
+            throws IOException {
+        // Signal type of operation
+        outputStream.write(PUT_OPERATION);
+        if (jobId == null && applicationId == null) {
+            outputStream.write(JOB_UNRELATED_CONTENT);
+        } else if (jobId != null) {
+            outputStream.write(JOB_RELATED_CONTENT);
+            outputStream.write(jobId.getBytes());
+        } else if (applicationId != null) {
+            outputStream.write(APPLICATION_RELATED_CONTENT);
+            outputStream.write(applicationId.getBytes());
+        }
+        outputStream.write(blobType.ordinal());
+    }
+
+    /**
+     * Constructs and writes the header data for a PUT request to the given output stream.
+     *
+     * @param outputStream the output stream to write the PUT header data to
+     * @param jobId the ID of job the BLOB belongs to (or <tt>null</tt> if job-unrelated)
      * @param blobType whether the BLOB should become permanent or transient
      * @throws IOException thrown if an I/O error occurs while writing the header data to the output
      *     stream
@@ -119,15 +162,7 @@ final class BlobOutputStream extends OutputStream {
     private static void sendPutHeader(
             OutputStream outputStream, @Nullable JobID jobId, BlobKey.BlobType blobType)
             throws IOException {
-        // Signal type of operation
-        outputStream.write(PUT_OPERATION);
-        if (jobId == null) {
-            outputStream.write(JOB_UNRELATED_CONTENT);
-        } else {
-            outputStream.write(JOB_RELATED_CONTENT);
-            outputStream.write(jobId.getBytes());
-        }
-        outputStream.write(blobType.ordinal());
+        sendPutHeader(outputStream, jobId, null, blobType);
     }
 
     /**

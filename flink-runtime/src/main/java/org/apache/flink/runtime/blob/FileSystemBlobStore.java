@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.blob;
 
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.core.fs.FSDataOutputStream;
 import org.apache.flink.core.fs.FileSystem;
@@ -88,11 +89,35 @@ public class FileSystemBlobStore implements BlobStoreService {
         return true;
     }
 
+    @Override
+    public boolean put(File localFile, ApplicationID applicationId, BlobKey blobKey)
+            throws IOException {
+        createBasePathIfNeeded();
+        String toBlobPath = BlobUtils.getStorageLocationPath(basePath, applicationId, blobKey);
+        try (FSDataOutputStream os =
+                fileSystem.create(new Path(toBlobPath), FileSystem.WriteMode.OVERWRITE)) {
+            LOG.debug("Copying from {} to {}.", localFile, toBlobPath);
+            Files.copy(localFile, os);
+
+            os.sync();
+        }
+        return true;
+    }
+
     // - Get ------------------------------------------------------------------
 
     @Override
     public boolean get(JobID jobId, BlobKey blobKey, File localFile) throws IOException {
         return get(BlobUtils.getStorageLocationPath(basePath, jobId, blobKey), localFile, blobKey);
+    }
+
+    @Override
+    public boolean get(ApplicationID applicationId, BlobKey blobKey, File localFile)
+            throws IOException {
+        return get(
+                BlobUtils.getStorageLocationPath(basePath, applicationId, blobKey),
+                localFile,
+                blobKey);
     }
 
     private boolean get(String fromBlobPath, File toFile, BlobKey blobKey) throws IOException {
@@ -153,8 +178,18 @@ public class FileSystemBlobStore implements BlobStoreService {
     }
 
     @Override
+    public boolean delete(ApplicationID applicationId, BlobKey blobKey) {
+        return delete(BlobUtils.getStorageLocationPath(basePath, applicationId, blobKey));
+    }
+
+    @Override
     public boolean deleteAll(JobID jobId) {
         return delete(BlobUtils.getStorageLocationPath(basePath, jobId));
+    }
+
+    @Override
+    public boolean deleteAll(ApplicationID applicationId) {
+        return delete(BlobUtils.getStorageLocationPath(basePath, applicationId));
     }
 
     private boolean delete(String blobPath) {

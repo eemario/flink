@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.blob;
 
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
 
 import java.io.File;
@@ -32,7 +33,19 @@ public class VoidBlobStore implements BlobStoreService {
     }
 
     @Override
+    public boolean put(File localFile, ApplicationID applicationId, BlobKey blobKey)
+            throws IOException {
+        return false;
+    }
+
+    @Override
     public boolean get(JobID jobId, BlobKey blobKey, File localFile) throws IOException {
+        return false;
+    }
+
+    @Override
+    public boolean get(ApplicationID applicationId, BlobKey blobKey, File localFile)
+            throws IOException {
         return false;
     }
 
@@ -42,7 +55,17 @@ public class VoidBlobStore implements BlobStoreService {
     }
 
     @Override
+    public boolean delete(ApplicationID applicationId, BlobKey blobKey) {
+        return true;
+    }
+
+    @Override
     public boolean deleteAll(JobID jobId) {
+        return true;
+    }
+
+    @Override
+    public boolean deleteAll(ApplicationID applicationId) {
         return true;
     }
 

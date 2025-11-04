@@ -21,6 +21,8 @@ package org.apache.flink.runtime.dispatcher.runner;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.testutils.AllCallbackWrapper;
+import org.apache.flink.runtime.application.AbstractApplication;
+import org.apache.flink.runtime.application.ApplicationResult;
 import org.apache.flink.runtime.dispatcher.Dispatcher;
 import org.apache.flink.runtime.dispatcher.DispatcherBootstrapFactory;
 import org.apache.flink.runtime.dispatcher.DispatcherFactory;
@@ -253,6 +255,8 @@ class DefaultDispatcherRunnerITCase {
                 DispatcherId fencingToken,
                 Collection<ExecutionPlan> recoveredJobs,
                 Collection<JobResult> recoveredDirtyJobResults,
+                Collection<AbstractApplication> recoveredApplications,
+                Collection<ApplicationResult> recoveredDirtyApplicationResults,
                 DispatcherBootstrapFactory dispatcherBootstrapFactory,
                 PartialDispatcherServicesWithJobPersistenceComponents
                         partialDispatcherServicesWithJobPersistenceComponents)
@@ -262,6 +266,8 @@ class DefaultDispatcherRunnerITCase {
                     fencingToken,
                     recoveredJobs,
                     recoveredDirtyJobResults,
+                    recoveredApplications,
+                    recoveredDirtyApplicationResults,
                     dispatcherBootstrapFactory,
                     DispatcherServices.from(
                             partialDispatcherServicesWithJobPersistenceComponents,

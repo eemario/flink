@@ -19,6 +19,7 @@
 package org.apache.flink.runtime.dispatcher.runner;
 
 import org.apache.flink.annotation.Internal;
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.clusterframework.ApplicationStatus;
 import org.apache.flink.runtime.dispatcher.Dispatcher;
@@ -47,6 +48,11 @@ public class DefaultDispatcherGatewayService
     @Override
     public CompletableFuture<Void> onRemovedExecutionPlan(JobID jobId) {
         return dispatcher.onRemovedExecutionPlan(jobId);
+    }
+
+    @Override
+    public CompletableFuture<Void> onRemovedApplication(ApplicationID applicationId) {
+        return dispatcher.onRemovedApplication(applicationId);
     }
 
     @Override

@@ -114,6 +114,8 @@ public abstract class AbstractApplication implements Serializable {
 
     public abstract String getName();
 
+    public abstract ApplicationStoreEntry toApplicationStoreEntry();
+
     public ApplicationID getApplicationId() {
         return applicationId;
     }

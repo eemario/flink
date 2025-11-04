@@ -21,6 +21,9 @@ package org.apache.flink.runtime.dispatcher.runner;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.core.testutils.FlinkAssertions;
 import org.apache.flink.core.testutils.OneShotLatch;
+import org.apache.flink.runtime.application.ApplicationResultStore;
+import org.apache.flink.runtime.application.ApplicationStore;
+import org.apache.flink.runtime.blob.BlobServer;
 import org.apache.flink.runtime.client.DuplicateJobSubmissionException;
 import org.apache.flink.runtime.client.JobSubmissionException;
 import org.apache.flink.runtime.highavailability.JobResultStore;
@@ -81,6 +84,11 @@ class SessionDispatcherLeaderProcessTest {
 
     private ExecutionPlanStore executionPlanStore;
     private JobResultStore jobResultStore;
+
+    private ApplicationStore applicationStore;
+    private ApplicationResultStore applicationResultStore;
+
+    private BlobServer blobServer;
 
     private AbstractDispatcherLeaderProcess.DispatcherGatewayServiceFactory
             dispatcherServiceFactory;
@@ -229,8 +237,12 @@ class SessionDispatcherLeaderProcessTest {
                 (ignoredDispatcherId,
                         recoveredJobs,
                         recoveredDirtyJobResults,
+                        recoveredApplications,
+                        recoveredDirtyApplicationResults,
                         ignoredExecutionPlanWriter,
-                        ignoredJobResultStore) -> {
+                        ignoredJobResultStore,
+                        ignoredApplicationWriter,
+                        ignoredApplicationResultStore) -> {
                     recoveredExecutionPlansFuture.complete(recoveredJobs);
                     recoveredDirtyJobResultsFuture.complete(recoveredDirtyJobResults);
                     return TestingDispatcherGatewayService.newBuilder().build();
@@ -282,8 +294,12 @@ class SessionDispatcherLeaderProcessTest {
                 (ignoredDispatcherId,
                         recoveredJobs,
                         recoveredDirtyJobResults,
+                        recoveredApplications,
+                        recoveredDirtyApplicationResults,
                         ignoredExecutionPlanWriter,
-                        ignoredJobResultStore) -> {
+                        ignoredJobResultStore,
+                        ignoredApplicationWriter,
+                        ignoredApplicationResultStore) -> {
                     recoveredExecutionPlansFuture.complete(recoveredJobs);
                     recoveredDirtyJobResultsFuture.complete(recoveredDirtyJobResults);
                     return TestingDispatcherGatewayService.newBuilder().build();
@@ -776,8 +792,12 @@ class SessionDispatcherLeaderProcessTest {
         return (ignoredDispatcherId,
                 recoveredJobs,
                 ignoredRecoveredDirtyJobResults,
+                ignoredRecoveredApplications,
+                ignoredRecoveredDirtyApplicationResults,
                 ignoredExecutionPlanWriter,
-                ignoredJobResultStore) -> createFunction.apply(recoveredJobs);
+                ignoredJobResultStore,
+                ignoredApplicationWriter,
+                ignoredApplicationResultStore) -> createFunction.apply(recoveredJobs);
     }
 
     private AbstractDispatcherLeaderProcess.DispatcherGatewayServiceFactory
@@ -786,8 +806,12 @@ class SessionDispatcherLeaderProcessTest {
         return (ignoredDispatcherId,
                 ignoredRecoveredJobs,
                 ignoredRecoveredDirtyJobResults,
+                ignoredRecoveredApplications,
+                ignoredRecoveredDirtyApplicationResults,
                 ignoredExecutionPlanWriter,
-                ignoredJobResultStore) -> supplier.get();
+                ignoredJobResultStore,
+                ignoredApplicationWriter,
+                ignoredApplicationResultStore) -> supplier.get();
     }
 
     private void verifyOnAddedExecutionPlanResultDidNotFail(
@@ -804,6 +828,9 @@ class SessionDispatcherLeaderProcessTest {
                 dispatcherServiceFactory,
                 executionPlanStore,
                 jobResultStore,
+                applicationStore,
+                applicationResultStore,
+                blobServer,
                 ioExecutor,
                 fatalErrorHandler);
     }

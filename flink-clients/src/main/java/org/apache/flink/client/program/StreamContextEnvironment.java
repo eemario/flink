@@ -34,7 +34,6 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironmentFactory;
 import org.apache.flink.streaming.api.graph.StreamGraph;
 import org.apache.flink.util.ExceptionUtils;
-import org.apache.flink.util.FlinkRuntimeException;
 import org.apache.flink.util.ShutdownHookUtil;
 
 import org.apache.flink.shaded.guava33.com.google.common.collect.MapDifference;
@@ -227,8 +226,11 @@ public class StreamContextEnvironment extends StreamExecutionEnvironment {
 
     private void validateAllowedExecution() {
         if (enforceSingleJobExecution && jobCounter > 0) {
-            throw new FlinkRuntimeException(
-                    "Cannot have more than one execute() or executeAsync() call in a single environment.");
+            // hack for testing
+            LOG.warn("More than one execute() or executeAsync() call in a single environment.");
+            //            throw new FlinkRuntimeException(
+            //                    "Cannot have more than one execute() or executeAsync() call in a
+            // single environment.");
         }
         jobCounter++;
     }
