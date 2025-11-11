@@ -101,6 +101,7 @@ public class ApplicationDispatcherGatewayServiceFactory
             ApplicationResultStore applicationResultStore) {
 
         final List<JobID> recoveredJobIds = getRecoveredJobIds(recoveredJobs);
+        final List<JobID> terminatedJobIds = getTerminatedJobIds(recoveredDirtyJobResults);
 
         final boolean allowExecuteMultipleJobs =
                 ApplicationJobUtils.allowExecuteMultipleJobs(configuration);
@@ -116,6 +117,7 @@ public class ApplicationDispatcherGatewayServiceFactory
                         applicationId,
                         program,
                         recoveredJobIds,
+                        terminatedJobIds,
                         configuration,
                         true,
                         !allowExecuteMultipleJobs,
@@ -151,5 +153,9 @@ public class ApplicationDispatcherGatewayServiceFactory
 
     private List<JobID> getRecoveredJobIds(final Collection<ExecutionPlan> recoveredJobs) {
         return recoveredJobs.stream().map(ExecutionPlan::getJobID).collect(Collectors.toList());
+    }
+
+    private List<JobID> getTerminatedJobIds(final Collection<JobResult> terminatedJobs) {
+        return terminatedJobs.stream().map(JobResult::getJobId).collect(Collectors.toList());
     }
 }

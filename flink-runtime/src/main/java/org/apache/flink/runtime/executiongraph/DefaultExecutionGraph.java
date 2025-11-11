@@ -19,6 +19,7 @@
 package org.apache.flink.runtime.executiongraph;
 
 import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.ArchivedExecutionConfig;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.JobID;
@@ -636,6 +637,11 @@ public class DefaultExecutionGraph implements ExecutionGraph, InternalExecutionG
     @Override
     public String getJobName() {
         return jobInformation.getJobName();
+    }
+
+    @Override
+    public ApplicationID getApplicationId() {
+        return jobInformation.getApplicationId();
     }
 
     @Override

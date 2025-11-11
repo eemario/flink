@@ -94,6 +94,8 @@ public class PackagedProgramApplication extends AbstractApplication {
 
     private final Collection<JobID> recoveredJobIds;
 
+    private final Collection<JobID> terminatedJobIds;
+
     private final Configuration configuration;
 
     private final boolean handleFatalError;
@@ -118,6 +120,7 @@ public class PackagedProgramApplication extends AbstractApplication {
             final ApplicationID applicationId,
             final PackagedProgram program,
             final Collection<JobID> recoveredJobIds,
+            final Collection<JobID> terminatedJobIds,
             final Configuration configuration,
             final boolean handleFatalError,
             final boolean enforceSingleJobExecution,
@@ -127,6 +130,7 @@ public class PackagedProgramApplication extends AbstractApplication {
                 applicationId,
                 program,
                 recoveredJobIds,
+                terminatedJobIds,
                 configuration,
                 handleFatalError,
                 enforceSingleJobExecution,
@@ -139,6 +143,7 @@ public class PackagedProgramApplication extends AbstractApplication {
             final ApplicationID applicationId,
             final PackagedProgram program,
             final Collection<JobID> recoveredJobIds,
+            final Collection<JobID> terminatedJobIds,
             final Configuration configuration,
             final boolean handleFatalError,
             final boolean enforceSingleJobExecution,
@@ -148,6 +153,7 @@ public class PackagedProgramApplication extends AbstractApplication {
         super(applicationId);
         this.program = checkNotNull(program);
         this.recoveredJobIds = checkNotNull(recoveredJobIds);
+        this.terminatedJobIds = checkNotNull(terminatedJobIds);
         this.configuration = checkNotNull(configuration);
         this.handleFatalError = handleFatalError;
         this.enforceSingleJobExecution = enforceSingleJobExecution;
@@ -553,11 +559,15 @@ public class PackagedProgramApplication extends AbstractApplication {
                                             .key())));
             return;
         }
-        final List<JobID> applicationJobIds = new ArrayList<>(recoveredJobIds);
+        final List<JobID> submittedJobIds = new ArrayList<>();
         try {
             final PipelineExecutorServiceLoader executorServiceLoader =
                     new EmbeddedExecutorServiceLoader(
-                            applicationJobIds, dispatcherGateway, scheduledExecutor);
+                            submittedJobIds,
+                            recoveredJobIds,
+                            terminatedJobIds,
+                            dispatcherGateway,
+                            scheduledExecutor);
 
             ClientUtils.executeProgram(
                     executorServiceLoader,
@@ -567,12 +577,12 @@ public class PackagedProgramApplication extends AbstractApplication {
                     true /* suppress sysout */,
                     getApplicationId());
 
-            if (applicationJobIds.isEmpty()) {
+            if (submittedJobIds.isEmpty()) {
                 jobIdsFuture.completeExceptionally(
                         new ApplicationExecutionException(
                                 "The application contains no execute() calls."));
             } else {
-                jobIdsFuture.complete(applicationJobIds);
+                jobIdsFuture.complete(submittedJobIds);
             }
         } catch (Throwable t) {
             // If we're running in a single job execution mode, it's safe to consider re-submission
@@ -585,7 +595,7 @@ public class PackagedProgramApplication extends AbstractApplication {
                 final JobID jobId = maybeDuplicate.get().getJobID();
                 tolerateMissingResult.add(jobId);
                 jobIdsFuture.complete(Collections.singletonList(jobId));
-            } else if (submitFailedJobOnApplicationError && applicationJobIds.isEmpty()) {
+            } else if (submitFailedJobOnApplicationError && submittedJobIds.isEmpty()) {
                 final JobID failedJobId =
                         JobID.fromHexString(
                                 configuration.get(PipelineOptionsInternal.PIPELINE_FIXED_JOB_ID));

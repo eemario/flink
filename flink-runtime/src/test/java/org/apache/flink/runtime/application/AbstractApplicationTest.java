@@ -248,7 +248,9 @@ public class AbstractApplicationTest {
 
         @Override
         public AbstractApplication getApplication(
-                PermanentBlobService blobService, Collection<JobID> recoveredJobIds) {
+                PermanentBlobService blobService,
+                Collection<JobID> recoveredJobIds,
+                Collection<JobID> terminatedJobIds) {
             return this;
         }
     }

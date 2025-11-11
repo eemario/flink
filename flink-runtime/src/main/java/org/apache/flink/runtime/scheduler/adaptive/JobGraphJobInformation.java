@@ -18,6 +18,7 @@
 package org.apache.flink.runtime.scheduler.adaptive;
 
 import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobgraph.JobVertex;
@@ -75,6 +76,10 @@ public class JobGraphJobInformation implements JobInformation {
 
     public String getName() {
         return name;
+    }
+
+    public ApplicationID getApplicationId() {
+        return jobGraph.getApplicationId();
     }
 
     public JobCheckpointingSettings getCheckpointingSettings() {

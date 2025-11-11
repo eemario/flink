@@ -66,6 +66,7 @@ import org.apache.flink.runtime.entrypoint.ClusterEntryPointExceptionUtils;
 import org.apache.flink.runtime.executiongraph.AccessExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ArchivedExecutionGraph;
 import org.apache.flink.runtime.executiongraph.ArchivedExecutionJobVertex;
+import org.apache.flink.runtime.executiongraph.ErrorInfo;
 import org.apache.flink.runtime.executiongraph.JobStatusListener;
 import org.apache.flink.runtime.heartbeat.HeartbeatServices;
 import org.apache.flink.runtime.highavailability.HighAvailabilityServices;
@@ -194,7 +195,9 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
     private final Map<JobID, ExecutionPlan> recoveredJobs;
 
-    private final Collection<JobResult> recoveredDirtyJobs;
+    private final Map<ApplicationID, Map<JobID, ExecutionPlan>> recoveredJobsByApplicationId;
+
+    private final Map<ApplicationID, Set<JobResult>> recoveredDirtyJobResultsByApplicationId;
 
     private final Collection<AbstractApplication> recoveredApplications;
 
@@ -246,7 +249,12 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
     private final Map<JobID, ApplicationID> jobIdsToApplicationIds = new HashMap<>();
 
-    private final Map<ApplicationID, CompletableFuture<?>> applicationArchivingFutures =
+    private final Map<ApplicationID, CompletableFuture<?>> applicationTerminationFutures =
+            new HashMap<>();
+
+    private final Map<JobID, CompletableFuture<?>> jobCreateDirtyResultFutures = new HashMap<>();
+    private final Map<JobID, CompletableFuture<?>> jobMarkResultCleanFutures = new HashMap<>();
+    private final Map<ApplicationID, CompletableFuture<?>> applicationCreateDirtyResultFutures =
             new HashMap<>();
 
     /** Enum to distinguish between initial job submission and re-submission for recovery. */
@@ -367,7 +375,19 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                                 Collectors.toMap(
                                         ExecutionPlan::getJobID, executionPlan -> executionPlan));
 
-        this.recoveredDirtyJobs = new HashSet<>(recoveredDirtyJobs);
+        this.recoveredJobsByApplicationId =
+                recoveredJobs.stream()
+                        .collect(
+                                Collectors.groupingBy(
+                                        ExecutionPlan::getApplicationId,
+                                        Collectors.toMap(
+                                                ExecutionPlan::getJobID, Function.identity())));
+
+        this.recoveredDirtyJobResultsByApplicationId =
+                recoveredDirtyJobs.stream()
+                        .collect(
+                                Collectors.groupingBy(
+                                        JobResult::getApplicationId, Collectors.toSet()));
 
         this.recoveredApplications = recoveredApplications;
 
@@ -375,6 +395,12 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
         this.blobServer.retainJobs(
                 recoveredJobs.stream().map(ExecutionPlan::getJobID).collect(Collectors.toSet()),
+                dispatcherServices.getIoExecutor());
+
+        this.blobServer.retainApplications(
+                recoveredApplications.stream()
+                        .map(AbstractApplication::getApplicationId)
+                        .collect(Collectors.toSet()),
                 dispatcherServices.getIoExecutor());
 
         this.dispatcherCachedOperationsHandler =
@@ -423,10 +449,8 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
             throw exception;
         }
 
-        startCleanupRetries();
+        startApplicationCleanupRetries();
         startRecoveredApplications();
-        // defer starting recovered jobs since they may not need to be executed because of user
-        // logic
 
         this.dispatcherBootstrap =
                 this.dispatcherBootstrapFactory.create(
@@ -506,9 +530,7 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
                     singleJobApplication.setIsRecovered(true);
                     internalSubmitApplication(recoveredApplication).get();
-
                     runRecoveredJob(recoveredJob);
-                    recoveredJobs.remove(jobId);
                 } else {
                     internalSubmitApplication(recoveredApplication).get();
                 }
@@ -528,14 +550,18 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
     private void runRecoveredJob(final ExecutionPlan recoveredJob) {
         checkNotNull(recoveredJob);
 
-        associateJobWithApplication(
-                recoveredJob.getJobID(), recoveredJob.getName(), recoveredJob.getApplicationId());
-
         initJobClientExpiredTime(recoveredJob);
 
-        try (MdcCloseable ignored =
-                MdcUtils.withContext(MdcUtils.asContextData(recoveredJob.getJobID()))) {
+        final JobID jobId = recoveredJob.getJobID();
+        try (MdcCloseable ignored = MdcUtils.withContext(MdcUtils.asContextData(jobId))) {
             runJob(createJobMasterRunner(recoveredJob), ExecutionType.RECOVERY);
+            recoveredJobs.remove(jobId);
+            recoveredJobsByApplicationId.computeIfPresent(
+                    recoveredJob.getApplicationId(),
+                    (applicationId, jobIds) -> {
+                        jobIds.remove(jobId);
+                        return jobIds;
+                    });
         } catch (Throwable throwable) {
             onFatalError(
                     new DispatcherException(
@@ -571,15 +597,29 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
         }
     }
 
-    private void startCleanupRetries() {
-        recoveredDirtyJobs.forEach(this::runCleanupRetry);
-        recoveredDirtyJobs.clear();
+    private void startApplicationCleanupRetries() {
+        for (ApplicationResult dirtyApplicationResult : recoveredDirtyApplicationResults) {
+            ApplicationID applicationId = dirtyApplicationResult.getApplicationId();
+            applicationCreateDirtyResultFutures.put(
+                    applicationId, FutureUtils.completedVoidFuture());
+            final Set<JobResult> dirtyJobResults =
+                    Optional.ofNullable(
+                                    recoveredDirtyJobResultsByApplicationId.remove(applicationId))
+                            .orElse(Collections.emptySet());
+            final Set<JobID> jobs =
+                    dirtyJobResults.stream().map(JobResult::getJobId).collect(Collectors.toSet());
+
+            dirtyJobResults.forEach(this::runCleanupRetry);
+            removeApplication(applicationId, jobs);
+            log.info("Cleaned up application {} with jobs {}.", applicationId, jobs);
+        }
     }
 
     private void runCleanupRetry(final JobResult jobResult) {
         checkNotNull(jobResult);
 
         try {
+            log.info("Starting cleanup retry for job {}", jobResult.getJobId());
             runJob(createJobCleanupRunner(jobResult), ExecutionType.RECOVERY);
         } catch (Throwable throwable) {
             onFatalError(
@@ -721,7 +761,6 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                                                 jobId, "Cannot find the recovered job."));
                             } else {
                                 runRecoveredJob(recoveredJobs.get(jobId));
-                                recoveredJobs.remove(jobId);
                                 return CompletableFuture.completedFuture(Acknowledge.get());
                             }
                         },
@@ -780,6 +819,13 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
         applications.put(applicationId, application);
         application.registerStatusListener(this);
+        applicationCreateDirtyResultFutures.put(applicationId, new CompletableFuture<>());
+        Set<JobResult> dirtyJobResults =
+                recoveredDirtyJobResultsByApplicationId.remove(applicationId);
+        if (dirtyJobResults != null) {
+            dirtyJobResults.forEach(this::runCleanupRetry);
+        }
+
         return application.execute(
                 getSelfGateway(DispatcherGateway.class),
                 getRpcService().getScheduledExecutor(),
@@ -792,8 +838,31 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
             ApplicationID applicationId, ApplicationState newStatus) {
         if (newStatus.isTerminalState()) {
             checkState(
-                    !applicationArchivingFutures.containsKey(applicationId),
+                    !applicationTerminationFutures.containsKey(applicationId),
                     "The application (" + applicationId + ") has already been archived.");
+
+            Map<JobID, ExecutionPlan> remainingRecoveredJobs =
+                    recoveredJobsByApplicationId.remove(applicationId);
+            if (remainingRecoveredJobs != null) {
+                remainingRecoveredJobs.values().stream()
+                        .map(
+                                executionPlan ->
+                                        new JobResult.Builder()
+                                                .jobId(executionPlan.getJobID())
+                                                .applicationStatus(ApplicationStatus.FAILED)
+                                                .netRuntime(0)
+                                                .serializedThrowable(
+                                                        ErrorInfo.createErrorInfoWithNullableCause(
+                                                                        new FlinkException(
+                                                                                "Job recovery is not needed."),
+                                                                        System.currentTimeMillis())
+                                                                .getException())
+                                                .applicationId(applicationId)
+                                                .jobName(executionPlan.getName())
+                                                .build())
+                        .forEach(this::runCleanupRetry);
+            }
+
             log.info(
                     "Archiving application ({}) with terminal state {}.", applicationId, newStatus);
             CompletableFuture<?> applicationArchivingFuture =
@@ -809,10 +878,18 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                                                 throwable);
                                         return null;
                                     });
+
+            // 1. wait for all jobs dirty result futures before creating the dirty result
+            // 2. wait for all jobs clean result futures before marking the result as clean
+            Set<JobID> jobs = applications.get(applicationId).getJobs();
             CompletableFuture<?> applicationCleanupFuture =
                     applicationArchivingFuture
-                            .thenCompose(
-                                    ignored ->
+                            .thenCombine(
+                                    FutureUtils.waitForAll(
+                                            jobs.stream()
+                                                    .map(jobCreateDirtyResultFutures::get)
+                                                    .collect(Collectors.toList())),
+                                    (ignored1, ignored2) ->
                                             applicationResultStore
                                                     .hasCleanApplicationResultEntryAsync(
                                                             applicationId)
@@ -839,34 +916,64 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                                                                                                     new ApplicationResultEntry(
                                                                                                             new ApplicationResult(
                                                                                                                     applicationId,
-                                                                                                                    newStatus)));
+                                                                                                                    newStatus)))
+                                                                                            .handle(
+                                                                                                    (unused,
+                                                                                                            error) -> {
+                                                                                                        CompletableFuture<
+                                                                                                                        ?>
+                                                                                                                future =
+                                                                                                                        applicationCreateDirtyResultFutures
+                                                                                                                                .get(
+                                                                                                                                        applicationId);
+                                                                                                        if (error
+                                                                                                                != null) {
+                                                                                                            fatalErrorHandler
+                                                                                                                    .onFatalError(
+                                                                                                                            new FlinkException(
+                                                                                                                                    String
+                                                                                                                                            .format(
+                                                                                                                                                    "The application %s couldn't be marked as pre-cleanup finished in ApplicationResultStore.",
+                                                                                                                                                    applicationId),
+                                                                                                                                    error));
+                                                                                                        }
+                                                                                                        future
+                                                                                                                .complete(
+                                                                                                                        null);
+                                                                                                        return null;
+                                                                                                    });
                                                                                 });
                                                             }))
-                            .thenCompose(
-                                    ignored ->
-                                            applicationResourceCleaner
-                                                    .cleanupAsync(applicationId)
-                                                    .thenCompose(
-                                                            unused ->
-                                                                    applicationResultStore
-                                                                            .markResultAsCleanAsync(
-                                                                                    applicationId))
-                                                    .handle(
-                                                            (unusedVoid, e) -> {
-                                                                if (e == null) {
-                                                                    log.debug(
-                                                                            "Cleanup for the application '{}' has finished. Application has been marked as clean.",
-                                                                            applicationId);
-                                                                } else {
-                                                                    log.warn(
-                                                                            "Could not properly application job {} result as clean.",
-                                                                            applicationId,
-                                                                            e);
-                                                                }
-                                                                return null;
-                                                            }));
-            applicationArchivingFutures.put(applicationId, applicationCleanupFuture);
+                            .thenCompose(ignored -> removeApplication(applicationId, jobs));
+            applicationTerminationFutures.put(applicationId, applicationCleanupFuture);
         }
+    }
+
+    private CompletableFuture<Void> removeApplication(
+            ApplicationID applicationId, Set<JobID> jobs) {
+        return applicationResourceCleaner
+                .cleanupAsync(applicationId)
+                .thenCombine(
+                        FutureUtils.waitForAll(
+                                jobs.stream()
+                                        .map(jobMarkResultCleanFutures::get)
+                                        .collect(Collectors.toList())),
+                        (unused1, unused2) ->
+                                applicationResultStore.markResultAsCleanAsync(applicationId))
+                .handle(
+                        (unusedVoid, e) -> {
+                            if (e == null) {
+                                log.debug(
+                                        "Cleanup for the application '{}' has finished. Application has been marked as clean.",
+                                        applicationId);
+                            } else {
+                                log.warn(
+                                        "Could not properly mark application {} result as clean.",
+                                        applicationId,
+                                        e);
+                            }
+                            return null;
+                        });
     }
 
     @VisibleForTesting
@@ -881,7 +988,7 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
     @VisibleForTesting
     CompletableFuture<?> getApplicationArchivingFuture(ApplicationID applicationId) {
-        return applicationArchivingFutures.get(applicationId);
+        return applicationTerminationFutures.get(applicationId);
     }
 
     /**
@@ -902,9 +1009,7 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
         final JobID jobId = executionPlan.getJobID();
         final String jobName = executionPlan.getName();
-        final ApplicationID applicationId = executionPlan.getApplicationId();
         log.info("Submitting job '{}' ({}).", jobName, jobId);
-        associateJobWithApplication(jobId, jobName, applicationId);
 
         // track as an outstanding job
         submittedAndWaitingTerminationJobIDs.add(executionPlan.getJobID());
@@ -922,14 +1027,12 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                                         executionPlan.getJobID()));
     }
 
-    private void associateJobWithApplication(
-            JobID jobId, String jobName, ApplicationID applicationId) {
+    private void associateJobWithApplication(JobID jobId, ApplicationID applicationId) {
         if (applications.containsKey(applicationId)) {
             applications.get(applicationId).addJob(jobId);
             jobIdsToApplicationIds.put(jobId, applicationId);
         } else {
-            log.warn(
-                    "Application ({}) for job '{}' ({}) not found.", applicationId, jobName, jobId);
+            log.warn("Application {} for job {} not found.", applicationId, jobId);
         }
     }
 
@@ -1006,6 +1109,10 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
             throws Exception {
         jobManagerRunner.start();
         jobManagerRunnerRegistry.register(jobManagerRunner);
+        jobCreateDirtyResultFutures.put(jobManagerRunner.getJobID(), new CompletableFuture<>());
+        jobMarkResultCleanFutures.put(jobManagerRunner.getJobID(), new CompletableFuture<>());
+        associateJobWithApplication(
+                jobManagerRunner.getJobID(), jobManagerRunner.getApplicationId());
 
         final JobID jobId = jobManagerRunner.getJobID();
 
@@ -1580,7 +1687,7 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                 allJobsTerminationFuture,
                 () ->
                         FutureUtils.runAfterwards(
-                                FutureUtils.completeAll(applicationArchivingFutures.values()),
+                                FutureUtils.completeAll(applicationTerminationFutures.values()),
                                 () -> shutDownFuture.complete(applicationStatus)));
         return CompletableFuture.completedFuture(Acknowledge.get());
     }
@@ -1761,20 +1868,30 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
     private CompletableFuture<Void> removeJob(JobID jobId, CleanupJobState cleanupJobState) {
         if (cleanupJobState.isGlobalCleanup()) {
+            final ApplicationID applicationId = jobIdsToApplicationIds.get(jobId);
+            CompletableFuture<?> applicationDirtyResultFuture =
+                    applicationCreateDirtyResultFutures.get(applicationId);
+
+            // wait for the application dirty result before marking the job result as clean
             return globalResourceCleaner
                     .cleanupAsync(jobId)
-                    .thenCompose(unused -> jobResultStore.markResultAsCleanAsync(jobId))
+                    .thenCombine(
+                            applicationDirtyResultFuture,
+                            (unused1, unused2) -> jobResultStore.markResultAsCleanAsync(jobId))
                     .handle(
                             (unusedVoid, e) -> {
+                                CompletableFuture<?> future = jobMarkResultCleanFutures.get(jobId);
                                 if (e == null) {
                                     log.debug(
                                             "Cleanup for the job '{}' has finished. Job has been marked as clean.",
                                             jobId);
+                                    future.complete(null);
                                 } else {
                                     log.warn(
                                             "Could not properly mark job {} result as clean.",
                                             jobId,
                                             e);
+                                    future.completeExceptionally(e);
                                 }
                                 return null;
                             })
@@ -1892,6 +2009,7 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                                         archivedExecutionGraph, hasCleanJobResultEntry))
                 .handleAsync(
                         (ignored, error) -> {
+                            CompletableFuture<?> future = jobCreateDirtyResultFutures.get(jobId);
                             if (error != null) {
                                 fatalErrorHandler.onFatalError(
                                         new FlinkException(
@@ -1900,6 +2018,7 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                                                         executionGraphInfo.getJobId()),
                                                 error));
                             }
+                            future.complete(null);
                             return CleanupJobState.globalCleanup(terminalJobStatus);
                         },
                         getMainThreadExecutor(jobId));

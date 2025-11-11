@@ -176,6 +176,7 @@ public class PackagedProgramApplicationTest {
                         new ApplicationID(),
                         getProgram(2),
                         Collections.emptyList(),
+                        Collections.emptyList(),
                         getConfiguration(),
                         true,
                         false,
@@ -268,6 +269,7 @@ public class PackagedProgramApplicationTest {
                 new PackagedProgramApplication(
                         new ApplicationID(),
                         getProgram(2),
+                        Collections.emptyList(),
                         Collections.emptyList(),
                         getConfiguration(),
                         true,
@@ -480,6 +482,7 @@ public class PackagedProgramApplicationTest {
                 new PackagedProgramApplication(
                         new ApplicationID(),
                         getProgram(1),
+                        Collections.emptyList(),
                         Collections.emptyList(),
                         getConfiguration(),
                         true,
@@ -1083,6 +1086,7 @@ public class PackagedProgramApplicationTest {
                         new ApplicationID(),
                         FailingJob.getProgram(),
                         Collections.emptyList(),
+                        Collections.emptyList(),
                         configuration,
                         true,
                         true /* enforceSingleJobExecution */,
@@ -1101,6 +1105,7 @@ public class PackagedProgramApplicationTest {
                 new PackagedProgramApplication(
                         new ApplicationID(),
                         FailingJob.getProgram(),
+                        Collections.emptyList(),
                         Collections.emptyList(),
                         getConfiguration(),
                         true,
@@ -1237,6 +1242,7 @@ public class PackagedProgramApplicationTest {
                 new PackagedProgramApplication(
                         new ApplicationID(),
                         program,
+                        Collections.emptyList(),
                         Collections.emptyList(),
                         configuration,
                         handleFatalError,

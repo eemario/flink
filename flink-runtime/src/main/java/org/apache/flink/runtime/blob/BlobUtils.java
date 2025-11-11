@@ -67,6 +67,9 @@ public class BlobUtils {
     private static final String BLOB_FILE_PREFIX = "blob_";
 
     /** The prefix of all job-specific directories created by the BLOB server. */
+    static final String APPLICATION_DIR_PREFIX = "application_";
+
+    /** The prefix of all job-specific directories created by the BLOB server. */
     static final String JOB_DIR_PREFIX = "job_";
 
     /** The prefix of all job-unrelated directories created by the BLOB server. */
@@ -284,7 +287,8 @@ public class BlobUtils {
             return String.format("%s/%s", storageDir, NO_JOB_DIR_PREFIX);
         } else {
             // format: $base/application_$applicationId
-            return String.format("%s/application_%s", storageDir, applicationId.toString());
+            return String.format(
+                    "%s/%s%s", storageDir, APPLICATION_DIR_PREFIX, applicationId.toString());
         }
     }
 
@@ -334,8 +338,12 @@ public class BlobUtils {
         } else {
             // format: $base/application_$applicationId/blob_$key
             return String.format(
-                    "%s/application_%s/%s%s",
-                    storageDir, applicationId.toString(), BLOB_FILE_PREFIX, key.toString());
+                    "%s/%s%s/%s%s",
+                    storageDir,
+                    APPLICATION_DIR_PREFIX,
+                    applicationId.toString(),
+                    BLOB_FILE_PREFIX,
+                    key.toString());
         }
     }
 
@@ -697,39 +705,42 @@ public class BlobUtils {
                                             blobPath.getFileName()
                                                     .toString()
                                                     .substring(BLOB_FILE_PREFIX.length()));
-                            final String jobDirectory =
-                                    blobPath.getParent().getFileName().toString();
+                            final String dir = blobPath.getParent().getFileName().toString();
 
                             @Nullable final JobID jobId;
+                            @Nullable final ApplicationID applicationId;
 
-                            if (jobDirectory.equals(NO_JOB_DIR_PREFIX)) {
+                            if (dir.equals(NO_JOB_DIR_PREFIX)) {
                                 jobId = null;
-                            } else if (jobDirectory.startsWith(JOB_DIR_PREFIX)) {
+                                applicationId = null;
+                            } else if (dir.startsWith(JOB_DIR_PREFIX)) {
                                 jobId =
                                         new JobID(
                                                 StringUtils.hexStringToByte(
-                                                        jobDirectory.substring(
-                                                                JOB_DIR_PREFIX.length())));
+                                                        dir.substring(JOB_DIR_PREFIX.length())));
+                                applicationId = null;
+                            } else if (dir.startsWith(APPLICATION_DIR_PREFIX)) {
+                                jobId = null;
+                                applicationId =
+                                        ApplicationID.fromHexString(
+                                                dir.substring(APPLICATION_DIR_PREFIX.length()));
                             } else {
-                                return null;
-                                //                                throw new IllegalStateException(
-                                //                                        String.format("Unknown job
-                                // path %s.", jobDirectory));
+                                throw new IllegalStateException(
+                                        String.format("Unknown path %s.", dir));
                             }
 
                             if (blobKey instanceof TransientBlobKey) {
                                 return new TransientBlob(
-                                        (TransientBlobKey) blobKey, blobPath, jobId);
+                                        (TransientBlobKey) blobKey, blobPath, jobId, applicationId);
                             } else if (blobKey instanceof PermanentBlobKey) {
                                 return new PermanentBlob(
-                                        (PermanentBlobKey) blobKey, blobPath, jobId);
+                                        (PermanentBlobKey) blobKey, blobPath, jobId, applicationId);
                             } else {
                                 throw new IllegalStateException(
                                         String.format(
                                                 "Unknown blob key format %s.", blobKey.getClass()));
                             }
                         })
-                .filter(Objects::nonNull)
                 .collect(Collectors.toList());
     }
 
@@ -758,15 +769,29 @@ public class BlobUtils {
                 .collect(Collectors.toSet());
     }
 
+    static Set<ApplicationID> listExistingApplications(java.nio.file.Path directory)
+            throws IOException {
+        return listBlobsInDirectory(directory).stream()
+                .map(Blob::getApplicationId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+    }
+
     abstract static class Blob<T extends BlobKey> {
         private final T blobKey;
         private final java.nio.file.Path path;
         @Nullable private final JobID jobId;
+        @Nullable private final ApplicationID applicationId;
 
-        Blob(T blobKey, java.nio.file.Path path, @Nullable JobID jobId) {
+        Blob(
+                T blobKey,
+                java.nio.file.Path path,
+                @Nullable JobID jobId,
+                @Nullable ApplicationID applicationId) {
             this.blobKey = blobKey;
             this.path = path;
             this.jobId = jobId;
+            this.applicationId = applicationId;
         }
 
         public T getBlobKey() {
@@ -781,17 +806,38 @@ public class BlobUtils {
         public JobID getJobId() {
             return jobId;
         }
+
+        @Nullable
+        public ApplicationID getApplicationId() {
+            return applicationId;
+        }
     }
 
     static final class TransientBlob extends Blob<TransientBlobKey> {
         TransientBlob(TransientBlobKey blobKey, java.nio.file.Path path, @Nullable JobID jobId) {
-            super(blobKey, path, jobId);
+            this(blobKey, path, jobId, null);
+        }
+
+        TransientBlob(
+                TransientBlobKey blobKey,
+                java.nio.file.Path path,
+                @Nullable JobID jobId,
+                @Nullable ApplicationID applicationId) {
+            super(blobKey, path, jobId, applicationId);
         }
     }
 
     static final class PermanentBlob extends Blob<PermanentBlobKey> {
         PermanentBlob(PermanentBlobKey blobKey, java.nio.file.Path path, @Nullable JobID jobId) {
-            super(blobKey, path, jobId);
+            this(blobKey, path, jobId, null);
+        }
+
+        PermanentBlob(
+                PermanentBlobKey blobKey,
+                java.nio.file.Path path,
+                @Nullable JobID jobId,
+                @Nullable ApplicationID applicationId) {
+            super(blobKey, path, jobId, applicationId);
         }
     }
 }

@@ -27,6 +27,7 @@ import org.apache.flink.runtime.dispatcher.DispatcherGateway;
 import org.apache.flink.util.concurrent.ScheduledExecutor;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.stream.Stream;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
@@ -39,6 +40,10 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 public class EmbeddedExecutorServiceLoader implements PipelineExecutorServiceLoader {
 
     private final Collection<JobID> submittedJobIds;
+
+    private final Collection<JobID> recoveredJobIds;
+
+    private final Collection<JobID> terminatedJobIds;
 
     private final DispatcherGateway dispatcherGateway;
 
@@ -57,14 +62,35 @@ public class EmbeddedExecutorServiceLoader implements PipelineExecutorServiceLoa
             final Collection<JobID> submittedJobIds,
             final DispatcherGateway dispatcherGateway,
             final ScheduledExecutor retryExecutor) {
+        this(
+                submittedJobIds,
+                submittedJobIds,
+                Collections.emptySet(),
+                dispatcherGateway,
+                retryExecutor);
+    }
+
+    public EmbeddedExecutorServiceLoader(
+            final Collection<JobID> submittedJobIds,
+            final Collection<JobID> recoveredJobIds,
+            final Collection<JobID> terminatedJobIds,
+            final DispatcherGateway dispatcherGateway,
+            final ScheduledExecutor retryExecutor) {
         this.submittedJobIds = checkNotNull(submittedJobIds);
+        this.recoveredJobIds = checkNotNull(recoveredJobIds);
+        this.terminatedJobIds = checkNotNull(terminatedJobIds);
         this.dispatcherGateway = checkNotNull(dispatcherGateway);
         this.retryExecutor = checkNotNull(retryExecutor);
     }
 
     @Override
     public PipelineExecutorFactory getExecutorFactory(final Configuration configuration) {
-        return new EmbeddedExecutorFactory(submittedJobIds, dispatcherGateway, retryExecutor);
+        return new EmbeddedExecutorFactory(
+                submittedJobIds,
+                recoveredJobIds,
+                terminatedJobIds,
+                dispatcherGateway,
+                retryExecutor);
     }
 
     @Override

@@ -135,6 +135,7 @@ public class JarRunApplicationHandler
                                             applicationId,
                                             program,
                                             Collections.emptyList(),
+                                            Collections.emptyList(),
                                             effectiveConfiguration,
                                             false,
                                             true,

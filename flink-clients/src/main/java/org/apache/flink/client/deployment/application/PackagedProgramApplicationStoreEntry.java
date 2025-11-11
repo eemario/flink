@@ -67,7 +67,9 @@ public class PackagedProgramApplicationStoreEntry implements ApplicationStoreEnt
 
     @Override
     public AbstractApplication getApplication(
-            PermanentBlobService blobService, Collection<JobID> recoveredJobIds) {
+            PermanentBlobService blobService,
+            Collection<JobID> recoveredJobIds,
+            Collection<JobID> terminatedJobIds) {
         File jarFile;
         try {
             jarFile = blobService.getFile(applicationId, userJarBlobKey);
@@ -95,10 +97,17 @@ public class PackagedProgramApplicationStoreEntry implements ApplicationStoreEnt
                             "Failed to create PackagedProgram for application %s", applicationId));
         }
 
+        ConfigUtils.encodeCollectionToConfig(
+                configuration,
+                PipelineOptions.JARS,
+                program.getJobJarAndDependencies(),
+                URL::toString);
+
         return new PackagedProgramApplication(
                 applicationId,
                 program,
                 recoveredJobIds,
+                terminatedJobIds,
                 configuration,
                 false,
                 true,

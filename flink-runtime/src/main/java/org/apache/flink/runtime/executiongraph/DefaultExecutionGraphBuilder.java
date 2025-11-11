@@ -113,6 +113,7 @@ public class DefaultExecutionGraphBuilder {
                         jobId,
                         jobGraph.getJobType(),
                         jobName,
+                        jobGraph.getApplicationId(),
                         jobGraph.getSerializedExecutionConfig(),
                         jobGraph.getJobConfiguration(),
                         jobGraph.getUserJarBlobKeys(),

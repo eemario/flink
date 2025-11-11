@@ -94,7 +94,6 @@ public class DefaultSchedulerFactory implements SchedulerNGFactory {
             throw new FlinkException(
                     "Unsupported execution plan " + executionPlan.getClass().getCanonicalName());
         }
-
         final SlotPool slotPool =
                 slotPoolService
                         .castInto(SlotPool.class)

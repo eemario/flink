@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.jobmaster.factories;
 
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.runtime.executiongraph.ArchivedExecutionGraph;
@@ -43,6 +44,14 @@ public interface JobMasterServiceProcessFactory {
      * JobMasterServiceProcess}.
      */
     JobID getJobId();
+
+    /**
+     * Gets the {@link ApplicationID} of the job for which this factory creates {@link
+     * JobMasterServiceProcess}.
+     */
+    default ApplicationID getApplicationId() {
+        throw new UnsupportedOperationException();
+    }
 
     /**
      * Creates an {@link ArchivedExecutionGraph} for the job for which this factory creates {@link

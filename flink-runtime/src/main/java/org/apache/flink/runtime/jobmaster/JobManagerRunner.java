@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.jobmaster;
 
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.runtime.messages.Acknowledge;
@@ -63,6 +64,15 @@ public interface JobManagerRunner extends AutoCloseableAsync {
      * @return job id of the executed job
      */
     JobID getJobID();
+
+    /**
+     * Get the application id of the executed job.
+     *
+     * @return application id of the executed job
+     */
+    default ApplicationID getApplicationId() {
+        throw new UnsupportedOperationException();
+    }
 
     /**
      * Cancels the currently executed job.

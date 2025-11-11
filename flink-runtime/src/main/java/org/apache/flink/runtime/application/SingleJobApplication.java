@@ -81,7 +81,9 @@ public class SingleJobApplication extends AbstractApplication
 
     @Override
     public AbstractApplication getApplication(
-            PermanentBlobService blobService, Collection<JobID> recoveredJobIds) {
+            PermanentBlobService blobService,
+            Collection<JobID> recoveredJobIds,
+            Collection<JobID> terminatedJobIds) {
         return this;
     }
 

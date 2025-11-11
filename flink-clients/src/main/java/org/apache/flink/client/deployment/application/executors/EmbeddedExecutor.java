@@ -70,6 +70,10 @@ public class EmbeddedExecutor implements PipelineExecutor {
 
     private final Collection<JobID> submittedJobIds;
 
+    private final Collection<JobID> recoveredJobIds;
+
+    private final Collection<JobID> terminatedJobIds;
+
     private final DispatcherGateway dispatcherGateway;
 
     private final EmbeddedJobClientCreator jobClientCreator;
@@ -89,10 +93,14 @@ public class EmbeddedExecutor implements PipelineExecutor {
      */
     public EmbeddedExecutor(
             final Collection<JobID> submittedJobIds,
+            final Collection<JobID> recoveredJobIds,
+            final Collection<JobID> terminatedJobIds,
             final DispatcherGateway dispatcherGateway,
             final Configuration configuration,
             final EmbeddedJobClientCreator jobClientCreator) {
         this.submittedJobIds = checkNotNull(submittedJobIds);
+        this.recoveredJobIds = checkNotNull(recoveredJobIds);
+        this.terminatedJobIds = checkNotNull(terminatedJobIds);
         this.dispatcherGateway = checkNotNull(dispatcherGateway);
         this.jobClientCreator = checkNotNull(jobClientCreator);
         this.jobStatusChangedListeners =
@@ -121,20 +129,29 @@ public class EmbeddedExecutor implements PipelineExecutor {
 
         if (optJobId.isPresent()) {
             final JobID actualJobId = JobID.fromJobIndex(streamGraph.getJobIndex(), optJobId.get());
-            if (submittedJobIds.contains(actualJobId)) {
+            if (terminatedJobIds.contains(actualJobId)) {
+                LOG.info("Job {} was terminated in previous execution. Skip it now.", actualJobId);
+                return getJobClientFuture(actualJobId, userCodeClassloader);
+            }
+            if (recoveredJobIds.contains(actualJobId)) {
+                this.submittedJobIds.add(actualJobId);
                 final Duration timeout = configuration.get(ClientOptions.CLIENT_TIMEOUT);
+                LOG.info(
+                        "Job {} was submitted in previous execution. Recover it now.", actualJobId);
                 return dispatcherGateway
                         .recoverJob(actualJobId, timeout)
-                        .thenCompose(ack -> getJobClientFuture(actualJobId, userCodeClassloader));
+                        .thenCompose(
+                                ack -> {
+                                    LOG.info("Job {} was recovered successfully.", actualJobId);
+                                    return getJobClientFuture(actualJobId, userCodeClassloader);
+                                });
             }
         }
-
         return submitAndGetJobClientFuture(pipeline, configuration, userCodeClassloader);
     }
 
     private CompletableFuture<JobClient> getJobClientFuture(
             final JobID jobId, final ClassLoader userCodeClassloader) {
-        LOG.info("Job {} was recovered successfully.", jobId);
         return CompletableFuture.completedFuture(
                 jobClientCreator.getJobClient(jobId, userCodeClassloader));
     }

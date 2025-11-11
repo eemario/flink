@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.dispatcher.cleanup;
 
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.configuration.CheckpointingOptions;
@@ -178,6 +179,11 @@ public class CheckpointResourcesCleanupRunner implements JobManagerRunner {
     }
 
     @Override
+    public ApplicationID getApplicationId() {
+        return jobResult.getApplicationId();
+    }
+
+    @Override
     public CompletableFuture<Acknowledge> cancel(Duration timeout) {
         return FutureUtils.completedExceptionally(
                 new JobCancellationFailedException("Cleanup tasks are not meant to be cancelled."));
@@ -224,11 +230,13 @@ public class CheckpointResourcesCleanupRunner implements JobManagerRunner {
         return new ExecutionGraphInfo(
                 ArchivedExecutionGraph.createSparseArchivedExecutionGraph(
                         jobResult.getJobId(),
-                        "unknown",
+                        jobResult.getJobName(),
                         getJobStatus(jobResult),
                         null,
                         jobResult.getSerializedThrowable().orElse(null),
                         null,
-                        initializationTimestamp));
+                        jobResult.getStartTime(),
+                        jobResult.getEndTime(),
+                        jobResult.getApplicationId()));
     }
 }

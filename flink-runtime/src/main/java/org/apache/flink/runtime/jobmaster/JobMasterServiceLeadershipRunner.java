@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.jobmaster;
 
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.runtime.dispatcher.JobCancellationFailedException;
@@ -181,6 +182,11 @@ public class JobMasterServiceLeadershipRunner implements JobManagerRunner, Leade
     @Override
     public JobID getJobID() {
         return jobMasterServiceProcessFactory.getJobId();
+    }
+
+    @Override
+    public ApplicationID getApplicationId() {
+        return jobMasterServiceProcessFactory.getApplicationId();
     }
 
     @Override

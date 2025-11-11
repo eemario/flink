@@ -129,6 +129,7 @@ public enum JobMasterServiceLeadershipRunnerFactory implements JobManagerRunnerF
                         executionPlan.getJobID(),
                         executionPlan.getName(),
                         executionPlan.getJobType(),
+                        executionPlan.getApplicationId(),
                         executionPlan.getCheckpointingSettings(),
                         initializationTimestamp,
                         jobMasterServiceFactory);

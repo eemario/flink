@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.jobmaster.factories;
 
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.runtime.executiongraph.ArchivedExecutionGraph;
@@ -35,6 +36,7 @@ public class DefaultJobMasterServiceProcessFactory implements JobMasterServicePr
     private final JobID jobId;
     private final String jobName;
     private final JobType jobType;
+    private final ApplicationID applicationId;
     @Nullable private final JobCheckpointingSettings checkpointingSettings;
     private final long initializationTimestamp;
 
@@ -44,12 +46,14 @@ public class DefaultJobMasterServiceProcessFactory implements JobMasterServicePr
             JobID jobId,
             String jobName,
             JobType jobType,
+            ApplicationID applicationId,
             @Nullable JobCheckpointingSettings checkpointingSettings,
             long initializationTimestamp,
             JobMasterServiceFactory jobMasterServiceFactory) {
         this.jobId = jobId;
         this.jobName = jobName;
         this.jobType = jobType;
+        this.applicationId = applicationId;
         this.checkpointingSettings = checkpointingSettings;
         this.initializationTimestamp = initializationTimestamp;
         this.jobMasterServiceFactory = jobMasterServiceFactory;
@@ -70,6 +74,11 @@ public class DefaultJobMasterServiceProcessFactory implements JobMasterServicePr
     }
 
     @Override
+    public ApplicationID getApplicationId() {
+        return applicationId;
+    }
+
+    @Override
     public ArchivedExecutionGraph createArchivedExecutionGraph(
             JobStatus jobStatus, @Nullable Throwable cause) {
         return ArchivedExecutionGraph.createSparseArchivedExecutionGraph(
@@ -79,6 +88,8 @@ public class DefaultJobMasterServiceProcessFactory implements JobMasterServicePr
                 jobType,
                 cause,
                 checkpointingSettings,
-                initializationTimestamp);
+                initializationTimestamp,
+                -1,
+                applicationId);
     }
 }

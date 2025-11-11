@@ -204,7 +204,12 @@ public class JobDetails implements Serializable {
 
         long started = job.getStatusTimestamp(JobStatus.INITIALIZING);
         long finished = status.isGloballyTerminalState() ? job.getStatusTimestamp(status) : -1L;
-        long duration = (finished >= 0L ? finished : System.currentTimeMillis()) - started;
+        final long duration;
+        if (started <= 0) {
+            duration = -1;
+        } else {
+            duration = (finished >= 0L ? finished : System.currentTimeMillis()) - started;
+        }
 
         int[] countsPerStatus = new int[ExecutionState.values().length];
         long lastChanged = 0;

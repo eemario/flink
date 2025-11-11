@@ -20,6 +20,7 @@ package org.apache.flink.runtime.dispatcher.runner;
 
 import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.runtime.application.AbstractApplication;
 import org.apache.flink.runtime.application.ApplicationResult;
 import org.apache.flink.runtime.application.ApplicationResultStore;
@@ -172,14 +173,19 @@ public class SessionDispatcherLeaderProcess extends AbstractDispatcherLeaderProc
         final CompletableFuture<Collection<JobResult>> dirtyJobResultsFuture =
                 CompletableFuture.supplyAsync(this::getDirtyJobResultsIfRunning, ioExecutor);
 
-        final CompletableFuture<Collection<ExecutionPlan>> recoveredJobsFuture =
-                dirtyJobResultsFuture.thenApplyAsync(
-                        dirtyJobResults ->
-                                recoverJobsIfRunning(
-                                        dirtyJobResults.stream()
-                                                .map(JobResult::getJobId)
-                                                .collect(Collectors.toSet())),
-                        ioExecutor);
+        final CompletableFuture<Tuple2<Collection<ExecutionPlan>, Collection<JobID>>>
+                recoveredJobsAndTerminatedJobIdsFuture =
+                        dirtyJobResultsFuture.thenApplyAsync(
+                                dirtyJobResults -> {
+                                    Set<JobID> terminatedJobIds =
+                                            dirtyJobResults.stream()
+                                                    .map(JobResult::getJobId)
+                                                    .collect(Collectors.toSet());
+                                    return Tuple2.of(
+                                            recoverJobsIfRunning(terminatedJobIds),
+                                            terminatedJobIds);
+                                },
+                                ioExecutor);
 
         final CompletableFuture<Collection<ApplicationResult>> dirtyApplicationResultsFuture =
                 CompletableFuture.supplyAsync(
@@ -187,29 +193,30 @@ public class SessionDispatcherLeaderProcess extends AbstractDispatcherLeaderProc
 
         final CompletableFuture<Collection<AbstractApplication>> recoveredApplicationsFuture =
                 dirtyApplicationResultsFuture.thenCombineAsync(
-                        recoveredJobsFuture,
-                        (dirtyApplicationResults, recoveredJobs) -> {
+                        recoveredJobsAndTerminatedJobIdsFuture,
+                        (dirtyApplicationResults, recoveredJobsAndTerminatedJobIds) -> {
                             Set<JobID> recoveredJobIds =
-                                    recoveredJobs.stream()
+                                    recoveredJobsAndTerminatedJobIds.f0.stream()
                                             .map(ExecutionPlan::getJobID)
                                             .collect(Collectors.toSet());
                             return recoverApplicationsIfRunning(
                                     dirtyApplicationResults.stream()
                                             .map(ApplicationResult::getApplicationId)
                                             .collect(Collectors.toSet()),
-                                    recoveredJobIds);
+                                    recoveredJobIds,
+                                    recoveredJobsAndTerminatedJobIds.f1);
                         },
                         ioExecutor);
 
         return CompletableFuture.allOf(
                         dirtyJobResultsFuture,
-                        recoveredJobsFuture,
+                        recoveredJobsAndTerminatedJobIdsFuture,
                         dirtyApplicationResultsFuture,
                         recoveredApplicationsFuture)
                 .thenRun(
                         () ->
                                 createDispatcherIfRunning(
-                                        recoveredJobsFuture.join(),
+                                        recoveredJobsAndTerminatedJobIdsFuture.join().f0,
                                         dirtyJobResultsFuture.join(),
                                         recoveredApplicationsFuture.join(),
                                         dirtyApplicationResultsFuture.join()))
@@ -296,23 +303,28 @@ public class SessionDispatcherLeaderProcess extends AbstractDispatcherLeaderProc
 
     private Collection<AbstractApplication> recoverApplicationsIfRunning(
             Set<ApplicationID> recoveredDirtyApplicationResults,
-            Collection<JobID> recoveredJobIds) {
+            Collection<JobID> recoveredJobIds,
+            Collection<JobID> terminatedJobIds) {
         return supplyUnsynchronizedIfRunning(
                         () ->
                                 recoverApplications(
-                                        recoveredDirtyApplicationResults, recoveredJobIds))
+                                        recoveredDirtyApplicationResults,
+                                        recoveredJobIds,
+                                        terminatedJobIds))
                 .orElse(Collections.emptyList());
     }
 
     private Collection<AbstractApplication> recoverApplications(
-            Set<ApplicationID> recoveredDirtyJobResults, Collection<JobID> recoveredJobIds) {
+            Set<ApplicationID> recoveredDirtyApplicationResults,
+            Collection<JobID> recoveredJobIds,
+            Collection<JobID> terminatedJobIds) {
         log.info("Recover all persisted applications that are not finished, yet.");
         final Collection<ApplicationID> applicationIds = getApplicationIds();
         final Collection<AbstractApplication> recoveredApplications = new ArrayList<>();
 
         for (ApplicationID applicationId : applicationIds) {
-            if (!recoveredDirtyJobResults.contains(applicationId)) {
-                tryRecoverApplication(applicationId, recoveredJobIds)
+            if (!recoveredDirtyApplicationResults.contains(applicationId)) {
+                tryRecoverApplication(applicationId, recoveredJobIds, terminatedJobIds)
                         .ifPresent(recoveredApplications::add);
             } else {
                 log.info(
@@ -336,7 +348,9 @@ public class SessionDispatcherLeaderProcess extends AbstractDispatcherLeaderProc
     }
 
     private Optional<AbstractApplication> tryRecoverApplication(
-            ApplicationID applicationId, Collection<JobID> recoveredJobIds) {
+            ApplicationID applicationId,
+            Collection<JobID> recoveredJobIds,
+            Collection<JobID> terminatedJobIds) {
         log.info("Trying to recover application with id {}.", applicationId);
         try {
             final ApplicationStoreEntry applicationStoreEntry =
@@ -349,7 +363,8 @@ public class SessionDispatcherLeaderProcess extends AbstractDispatcherLeaderProc
             }
 
             return Optional.ofNullable(
-                    applicationStoreEntry.getApplication(blobServer, recoveredJobIds));
+                    applicationStoreEntry.getApplication(
+                            blobServer, recoveredJobIds, terminatedJobIds));
         } catch (Exception e) {
             throw new FlinkRuntimeException(
                     String.format("Could not recover application with id %s.", applicationId), e);
@@ -526,7 +541,11 @@ public class SessionDispatcherLeaderProcess extends AbstractDispatcherLeaderProc
 
     private Optional<AbstractApplication> recoverApplicationIfRunning(ApplicationID applicationId) {
         return supplyUnsynchronizedIfRunning(
-                        () -> tryRecoverApplication(applicationId, Collections.emptyList()))
+                        () ->
+                                tryRecoverApplication(
+                                        applicationId,
+                                        Collections.emptyList(),
+                                        Collections.emptyList()))
                 .flatMap(x -> x);
     }
 

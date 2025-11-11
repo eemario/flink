@@ -1181,8 +1181,10 @@ public class AdaptiveScheduler
                 cause,
                 jobInformation.getCheckpointingSettings(),
                 initializationTimestamp,
+                -1,
                 jobGraph.getVertices(),
-                initialParallelismStore);
+                initialParallelismStore,
+                jobInformation.getApplicationId());
     }
 
     @Override

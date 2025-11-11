@@ -1849,9 +1849,11 @@ public class DispatcherTest extends AbstractDispatcherTest {
                                                         null,
                                                         null,
                                                         System.currentTimeMillis(),
+                                                        -1,
                                                         jobGraph.getVertices(),
                                                         SchedulerBase.computeVertexParallelismStore(
-                                                                jobGraph)))));
+                                                                jobGraph),
+                                                        jobGraph.getApplicationId()))));
     }
 
     private static class CancellableJobManagerRunnerWithInitializedJobFactory
@@ -1927,6 +1929,7 @@ public class DispatcherTest extends AbstractDispatcherTest {
                             graph.getJobID(),
                             graph.getName(),
                             graph.getJobType(),
+                            graph.getApplicationId(),
                             graph.getCheckpointingSettings(),
                             initializationTimestamp,
                             jobMasterServiceFactory),
@@ -1994,6 +1997,7 @@ public class DispatcherTest extends AbstractDispatcherTest {
                             executionPlan.getJobID(),
                             executionPlan.getName(),
                             executionPlan.getJobType(),
+                            executionPlan.getApplicationId(),
                             executionPlan.getCheckpointingSettings(),
                             initializationTimestamp,
                             new TestingJobMasterServiceFactory(
@@ -2056,6 +2060,7 @@ public class DispatcherTest extends AbstractDispatcherTest {
                             executionPlan.getJobID(),
                             executionPlan.getName(),
                             executionPlan.getJobType(),
+                            executionPlan.getApplicationId(),
                             executionPlan.getCheckpointingSettings(),
                             initializationTimestamp,
                             new TestingJobMasterServiceFactory()),
@@ -2316,7 +2321,9 @@ public class DispatcherTest extends AbstractDispatcherTest {
 
         @Override
         public AbstractApplication getApplication(
-                PermanentBlobService blobService, Collection<JobID> recoveredJobIds) {
+                PermanentBlobService blobService,
+                Collection<JobID> recoveredJobIds,
+                Collection<JobID> terminatedJobIds) {
             return this;
         }
 

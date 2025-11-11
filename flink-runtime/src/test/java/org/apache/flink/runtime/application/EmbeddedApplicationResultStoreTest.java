@@ -22,13 +22,18 @@ import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.ApplicationState;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.blob.PermanentBlobService;
+import org.apache.flink.runtime.dispatcher.DispatcherGateway;
+import org.apache.flink.runtime.messages.Acknowledge;
+import org.apache.flink.runtime.rpc.FatalErrorHandler;
 import org.apache.flink.util.concurrent.Executors;
+import org.apache.flink.util.concurrent.ScheduledExecutor;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collection;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -162,12 +167,11 @@ class EmbeddedApplicationResultStoreTest {
         }
 
         @Override
-        public java.util.concurrent.CompletableFuture<org.apache.flink.runtime.messages.Acknowledge>
-                execute(
-                        org.apache.flink.runtime.dispatcher.DispatcherGateway dispatcherGateway,
-                        org.apache.flink.util.concurrent.ScheduledExecutor scheduledExecutor,
-                        java.util.concurrent.Executor mainThreadExecutor,
-                        org.apache.flink.runtime.rpc.FatalErrorHandler errorHandler) {
+        public CompletableFuture<Acknowledge> execute(
+                DispatcherGateway dispatcherGateway,
+                ScheduledExecutor scheduledExecutor,
+                Executor mainThreadExecutor,
+                FatalErrorHandler errorHandler) {
             return null;
         }
 
@@ -189,7 +193,9 @@ class EmbeddedApplicationResultStoreTest {
 
         @Override
         public AbstractApplication getApplication(
-                PermanentBlobService blobService, Collection<JobID> recoveredJobIds) {
+                PermanentBlobService blobService,
+                Collection<JobID> recoveredJobIds,
+                Collection<JobID> terminatedJobIds) {
             return this;
         }
     }

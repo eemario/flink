@@ -29,7 +29,9 @@ import java.util.Collection;
 public interface ApplicationStoreEntry extends Serializable {
 
     AbstractApplication getApplication(
-            PermanentBlobService blobService, Collection<JobID> recoveredJobIds);
+            PermanentBlobService blobService,
+            Collection<JobID> recoveredJobIds,
+            Collection<JobID> terminatedJobIds);
 
     ApplicationID getApplicationId();
 

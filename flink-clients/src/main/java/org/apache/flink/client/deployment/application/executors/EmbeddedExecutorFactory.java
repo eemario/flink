@@ -39,6 +39,10 @@ public class EmbeddedExecutorFactory implements PipelineExecutorFactory {
 
     private final Collection<JobID> submittedJobIds;
 
+    private final Collection<JobID> recoveredJobIds;
+
+    private final Collection<JobID> terminatedJobIds;
+
     private final DispatcherGateway dispatcherGateway;
 
     private final ScheduledExecutor retryExecutor;
@@ -54,9 +58,13 @@ public class EmbeddedExecutorFactory implements PipelineExecutorFactory {
      */
     public EmbeddedExecutorFactory(
             final Collection<JobID> submittedJobIds,
+            final Collection<JobID> recoveredJobIds,
+            final Collection<JobID> terminatedJobIds,
             final DispatcherGateway dispatcherGateway,
             final ScheduledExecutor retryExecutor) {
         this.submittedJobIds = checkNotNull(submittedJobIds);
+        this.recoveredJobIds = checkNotNull(recoveredJobIds);
+        this.terminatedJobIds = checkNotNull(terminatedJobIds);
         this.dispatcherGateway = checkNotNull(dispatcherGateway);
         this.retryExecutor = checkNotNull(retryExecutor);
     }
@@ -78,6 +86,8 @@ public class EmbeddedExecutorFactory implements PipelineExecutorFactory {
         checkNotNull(configuration);
         return new EmbeddedExecutor(
                 submittedJobIds,
+                recoveredJobIds,
+                terminatedJobIds,
                 dispatcherGateway,
                 configuration,
                 (jobId, userCodeClassloader) -> {

@@ -103,7 +103,6 @@ public class PipelineExecutorUtils {
             streamGraph.setInitialClientHeartbeatTimeout(
                     configuration.get(ClientOptions.CLIENT_HEARTBEAT_TIMEOUT).toMillis());
         }
-
         streamGraph.addJars(executionConfigAccessor.getJars());
         streamGraph.setClasspath(executionConfigAccessor.getClasspaths());
         streamGraph.setSavepointRestoreSettings(

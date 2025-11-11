@@ -18,6 +18,8 @@
 
 package org.apache.flink.runtime.executiongraph;
 
+import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.configuration.Configuration;
@@ -49,6 +51,8 @@ public class JobInformation implements Serializable {
     /** Job name. */
     private final String jobName;
 
+    private final ApplicationID applicationId;
+
     /** Serialized execution config because it can contain user code classes. */
     private final SerializedValue<ExecutionConfig> serializedExecutionConfig;
 
@@ -61,6 +65,7 @@ public class JobInformation implements Serializable {
     /** URLs specifying the classpath to add to the class loader. */
     private final ImmutableCollection<URL> requiredClasspathURLs;
 
+    @VisibleForTesting
     public JobInformation(
             JobID jobId,
             JobType jobType,
@@ -69,9 +74,30 @@ public class JobInformation implements Serializable {
             Configuration jobConfiguration,
             Collection<PermanentBlobKey> requiredJarFileBlobKeys,
             Collection<URL> requiredClasspathURLs) {
+        this(
+                jobId,
+                jobType,
+                jobName,
+                new ApplicationID(),
+                serializedExecutionConfig,
+                jobConfiguration,
+                requiredJarFileBlobKeys,
+                requiredClasspathURLs);
+    }
+
+    public JobInformation(
+            JobID jobId,
+            JobType jobType,
+            String jobName,
+            ApplicationID applicationId,
+            SerializedValue<ExecutionConfig> serializedExecutionConfig,
+            Configuration jobConfiguration,
+            Collection<PermanentBlobKey> requiredJarFileBlobKeys,
+            Collection<URL> requiredClasspathURLs) {
         this.jobId = Preconditions.checkNotNull(jobId);
         this.jobType = Preconditions.checkNotNull(jobType);
         this.jobName = Preconditions.checkNotNull(jobName);
+        this.applicationId = Preconditions.checkNotNull(applicationId);
         this.serializedExecutionConfig = Preconditions.checkNotNull(serializedExecutionConfig);
         this.jobConfiguration =
                 new UnmodifiableConfiguration(Preconditions.checkNotNull(jobConfiguration));
@@ -91,6 +117,10 @@ public class JobInformation implements Serializable {
 
     public JobType getJobType() {
         return jobType;
+    }
+
+    public ApplicationID getApplicationId() {
+        return applicationId;
     }
 
     public SerializedValue<ExecutionConfig> getSerializedExecutionConfig() {

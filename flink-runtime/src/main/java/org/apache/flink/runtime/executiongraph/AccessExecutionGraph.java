@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.executiongraph;
 
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.ArchivedExecutionConfig;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
@@ -218,4 +219,8 @@ public interface AccessExecutionGraph extends JobStatusProvider {
      * @return the number of pending operators.
      */
     int getPendingOperatorCount();
+
+    default ApplicationID getApplicationId() {
+        throw new UnsupportedOperationException();
+    }
 }

@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.executiongraph;
 
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.ArchivedExecutionConfig;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.JobID;
@@ -218,8 +219,10 @@ public class ArchivedExecutionGraphTest {
                         null,
                         null,
                         System.currentTimeMillis(),
+                        -1,
                         Arrays.asList(jobVertex),
-                        initialParallelismStore);
+                        initialParallelismStore,
+                        new ApplicationID());
 
         // make sure both vertex retrieval APIs work and are equivalent
         final ArchivedExecutionJobVertex archivedVertex =

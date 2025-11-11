@@ -19,6 +19,7 @@
 package org.apache.flink.runtime.jobmaster;
 
 import org.apache.flink.annotation.Internal;
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
@@ -66,12 +67,24 @@ public class JobResult implements Serializable {
     /** Stores the cause of the job failure, or {@code null} if the job finished successfully. */
     @Nullable private final SerializedThrowable serializedThrowable;
 
+    private final ApplicationID applicationId;
+
+    private final String jobName;
+
+    private final long startTime;
+
+    private final long endTime;
+
     private JobResult(
             final JobID jobId,
             final ApplicationStatus applicationStatus,
             final Map<String, SerializedValue<OptionalFailure<Object>>> accumulatorResults,
             final long netRuntime,
-            @Nullable final SerializedThrowable serializedThrowable) {
+            @Nullable final SerializedThrowable serializedThrowable,
+            final ApplicationID applicationId,
+            final String jobName,
+            final long startTime,
+            final long endTime) {
 
         checkArgument(netRuntime >= 0, "netRuntime must be greater than or equals 0");
 
@@ -80,6 +93,10 @@ public class JobResult implements Serializable {
         this.accumulatorResults = requireNonNull(accumulatorResults);
         this.netRuntime = netRuntime;
         this.serializedThrowable = serializedThrowable;
+        this.applicationId = applicationId;
+        this.jobName = requireNonNull(jobName);
+        this.startTime = startTime;
+        this.endTime = endTime;
     }
 
     /** Returns {@code true} if the job finished successfully. */
@@ -96,6 +113,18 @@ public class JobResult implements Serializable {
         return applicationStatus;
     }
 
+    public String getJobName() {
+        return jobName;
+    }
+
+    public long getStartTime() {
+        return startTime;
+    }
+
+    public long getEndTime() {
+        return endTime;
+    }
+
     public Map<String, SerializedValue<OptionalFailure<Object>>> getAccumulatorResults() {
         return accumulatorResults;
     }
@@ -110,6 +139,10 @@ public class JobResult implements Serializable {
      */
     public Optional<SerializedThrowable> getSerializedThrowable() {
         return Optional.ofNullable(serializedThrowable);
+    }
+
+    public ApplicationID getApplicationId() {
+        return applicationId;
     }
 
     /**
@@ -172,6 +205,14 @@ public class JobResult implements Serializable {
 
         private SerializedThrowable serializedThrowable;
 
+        private ApplicationID applicationId = new ApplicationID();
+
+        private String jobName = "unknown";
+
+        private long startTime = -1;
+
+        private long endTime = -1;
+
         public Builder jobId(final JobID jobId) {
             this.jobId = jobId;
             return this;
@@ -198,13 +239,37 @@ public class JobResult implements Serializable {
             return this;
         }
 
+        public Builder applicationId(final ApplicationID applicationId) {
+            this.applicationId = applicationId;
+            return this;
+        }
+
+        public Builder jobName(final String jobName) {
+            this.jobName = jobName;
+            return this;
+        }
+
+        public Builder startTime(final long startTime) {
+            this.startTime = startTime;
+            return this;
+        }
+
+        public Builder endTime(final long endTime) {
+            this.endTime = endTime;
+            return this;
+        }
+
         public JobResult build() {
             return new JobResult(
                     jobId,
                     applicationStatus,
                     accumulatorResults == null ? Collections.emptyMap() : accumulatorResults,
                     netRuntime,
-                    serializedThrowable);
+                    serializedThrowable,
+                    applicationId,
+                    jobName,
+                    startTime,
+                    endTime);
         }
     }
 
@@ -249,6 +314,11 @@ public class JobResult implements Serializable {
 
             builder.serializedThrowable(errorInfo.getException());
         }
+
+        builder.applicationId(accessExecutionGraph.getApplicationId());
+        builder.jobName(accessExecutionGraph.getJobName());
+        builder.startTime(accessExecutionGraph.getStatusTimestamp(JobStatus.INITIALIZING));
+        builder.endTime(accessExecutionGraph.getStatusTimestamp(jobStatus));
 
         return builder.build();
     }

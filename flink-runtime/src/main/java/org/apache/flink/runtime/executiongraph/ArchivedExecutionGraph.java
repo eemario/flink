@@ -18,6 +18,8 @@
 
 package org.apache.flink.runtime.executiongraph;
 
+import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.ArchivedExecutionConfig;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.JobID;
@@ -118,6 +120,8 @@ public class ArchivedExecutionGraph implements AccessExecutionGraph, Serializabl
 
     private final int pendingOperatorCount;
 
+    private final ApplicationID applicationId;
+
     public ArchivedExecutionGraph(
             JobID jobID,
             String jobName,
@@ -139,7 +143,8 @@ public class ArchivedExecutionGraph implements AccessExecutionGraph, Serializabl
             @Nullable TernaryBoolean stateChangelogEnabled,
             @Nullable String changelogStorageName,
             @Nullable String streamGraphJson,
-            int pendingOperatorCount) {
+            int pendingOperatorCount,
+            ApplicationID applicationId) {
 
         this.jobID = Preconditions.checkNotNull(jobID);
         this.jobName = Preconditions.checkNotNull(jobName);
@@ -162,6 +167,7 @@ public class ArchivedExecutionGraph implements AccessExecutionGraph, Serializabl
         this.changelogStorageName = changelogStorageName;
         this.streamGraphJson = streamGraphJson;
         this.pendingOperatorCount = pendingOperatorCount;
+        this.applicationId = Preconditions.checkNotNull(applicationId);
     }
 
     // --------------------------------------------------------------------------------------------
@@ -194,6 +200,11 @@ public class ArchivedExecutionGraph implements AccessExecutionGraph, Serializabl
     @Override
     public JobType getJobType() {
         return jobType;
+    }
+
+    @Override
+    public ApplicationID getApplicationId() {
+        return applicationId;
     }
 
     @Nullable
@@ -387,13 +398,11 @@ public class ArchivedExecutionGraph implements AccessExecutionGraph, Serializabl
                 executionGraph.isChangelogStateBackendEnabled(),
                 executionGraph.getChangelogStorageName().orElse(null),
                 executionGraph.getStreamGraphJson(),
-                executionGraph.getPendingOperatorCount());
+                executionGraph.getPendingOperatorCount(),
+                executionGraph.getApplicationId());
     }
 
-    /**
-     * Create a sparse ArchivedExecutionGraph for a job. Most fields will be empty, only job status
-     * and error-related fields are set.
-     */
+    @VisibleForTesting
     public static ArchivedExecutionGraph createSparseArchivedExecutionGraph(
             JobID jobId,
             String jobName,
@@ -407,11 +416,61 @@ public class ArchivedExecutionGraph implements AccessExecutionGraph, Serializabl
                 jobName,
                 jobStatus,
                 jobType,
+                throwable,
+                checkpointingSettings,
+                initializationTimestamp,
+                -1,
+                new ApplicationID());
+    }
+
+    @VisibleForTesting
+    public static ArchivedExecutionGraph createSparseArchivedExecutionGraph(
+            JobID jobId,
+            String jobName,
+            JobStatus jobStatus,
+            @Nullable JobType jobType,
+            @Nullable Throwable throwable,
+            @Nullable JobCheckpointingSettings checkpointingSettings,
+            long initializationTimestamp,
+            long endTime) {
+        return createSparseArchivedExecutionGraph(
+                jobId,
+                jobName,
+                jobStatus,
+                jobType,
+                throwable,
+                checkpointingSettings,
+                initializationTimestamp,
+                endTime,
+                new ApplicationID());
+    }
+
+    /**
+     * Create a sparse ArchivedExecutionGraph for a job. Most fields will be empty, only job status
+     * and error-related fields are set.
+     */
+    public static ArchivedExecutionGraph createSparseArchivedExecutionGraph(
+            JobID jobId,
+            String jobName,
+            JobStatus jobStatus,
+            @Nullable JobType jobType,
+            @Nullable Throwable throwable,
+            @Nullable JobCheckpointingSettings checkpointingSettings,
+            long initializationTimestamp,
+            long endTime,
+            ApplicationID applicationId) {
+        return createSparseArchivedExecutionGraph(
+                jobId,
+                jobName,
+                jobStatus,
+                jobType,
                 Collections.emptyMap(),
                 Collections.emptyList(),
                 throwable,
                 checkpointingSettings,
-                initializationTimestamp);
+                initializationTimestamp,
+                endTime,
+                applicationId);
     }
 
     public static ArchivedExecutionGraph createSparseArchivedExecutionGraphWithJobVertices(
@@ -422,8 +481,10 @@ public class ArchivedExecutionGraph implements AccessExecutionGraph, Serializabl
             @Nullable Throwable throwable,
             @Nullable JobCheckpointingSettings checkpointingSettings,
             long initializationTimestamp,
+            long endTime,
             Iterable<JobVertex> jobVertices,
-            VertexParallelismStore initialParallelismStore) {
+            VertexParallelismStore initialParallelismStore,
+            ApplicationID applicationId) {
         final Map<JobVertexID, ArchivedExecutionJobVertex> archivedJobVertices = new HashMap<>();
         final List<ArchivedExecutionJobVertex> archivedVerticesInCreationOrder = new ArrayList<>();
         for (JobVertex jobVertex : jobVertices) {
@@ -453,7 +514,9 @@ public class ArchivedExecutionGraph implements AccessExecutionGraph, Serializabl
                 archivedVerticesInCreationOrder,
                 throwable,
                 checkpointingSettings,
-                initializationTimestamp);
+                initializationTimestamp,
+                endTime,
+                applicationId);
     }
 
     private static ArchivedExecutionGraph createSparseArchivedExecutionGraph(
@@ -465,7 +528,9 @@ public class ArchivedExecutionGraph implements AccessExecutionGraph, Serializabl
             List<ArchivedExecutionJobVertex> archivedVerticesInCreationOrder,
             @Nullable Throwable throwable,
             @Nullable JobCheckpointingSettings checkpointingSettings,
-            long initializationTimestamp) {
+            long initializationTimestamp,
+            long endTime,
+            ApplicationID applicationId) {
         final Map<String, SerializedValue<OptionalFailure<Object>>> serializedUserAccumulators =
                 Collections.emptyMap();
         StringifiedAccumulatorResult[] archivedUserAccumulators =
@@ -483,6 +548,8 @@ public class ArchivedExecutionGraph implements AccessExecutionGraph, Serializabl
             long failureTime = System.currentTimeMillis();
             failureInfo = new ErrorInfo(throwable, failureTime);
             timestamps[jobStatus.ordinal()] = failureTime;
+        } else if (jobStatus.isGloballyTerminalState()) {
+            timestamps[jobStatus.ordinal()] = endTime;
         }
 
         return new ArchivedExecutionGraph(
@@ -510,6 +577,7 @@ public class ArchivedExecutionGraph implements AccessExecutionGraph, Serializabl
                         : checkpointingSettings.isChangelogStateBackendEnabled(),
                 checkpointingSettings == null ? null : "Unknown",
                 null,
-                0);
+                0,
+                applicationId);
     }
 }

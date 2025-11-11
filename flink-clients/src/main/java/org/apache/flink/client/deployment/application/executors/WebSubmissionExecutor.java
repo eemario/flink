@@ -34,6 +34,7 @@ import org.slf4j.LoggerFactory;
 import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
@@ -49,7 +50,13 @@ public class WebSubmissionExecutor extends EmbeddedExecutor {
             DispatcherGateway dispatcherGateway,
             Configuration configuration,
             EmbeddedJobClientCreator jobClientCreator) {
-        super(submittedJobIds, dispatcherGateway, configuration, jobClientCreator);
+        super(
+                submittedJobIds,
+                Collections.emptyList(),
+                Collections.emptyList(),
+                dispatcherGateway,
+                configuration,
+                jobClientCreator);
     }
 
     @Override
