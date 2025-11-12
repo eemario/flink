@@ -205,6 +205,8 @@ public class StreamGraph implements Pipeline, ExecutionPlan {
     // declared
     private byte[] serializedWatermarkDeclarations;
 
+    private final Set<String> userJarsToSkip = new HashSet<>();
+
     public StreamGraph(
             Configuration jobConfiguration,
             ExecutionConfig executionConfig,
@@ -266,6 +268,10 @@ public class StreamGraph implements Pipeline, ExecutionPlan {
     public void addJar(Path jar) {
         if (jar == null) {
             throw new IllegalArgumentException();
+        }
+
+        if (userJarsToSkip.contains(jar.getName())) {
+            return;
         }
 
         if (!userJars.contains(jar)) {
@@ -1300,6 +1306,11 @@ public class StreamGraph implements Pipeline, ExecutionPlan {
     @Override
     public ApplicationID getApplicationId() {
         return applicationId;
+    }
+
+    public void addUserJarToSkip(String userJarNames) {
+        LOG.info("Skip user jar {}", userJarNames);
+        this.userJarsToSkip.add(userJarNames);
     }
 
     /**

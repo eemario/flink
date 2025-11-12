@@ -19,6 +19,7 @@
 package org.apache.flink.runtime.blob;
 
 import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.BlobServerOptions;
@@ -267,6 +268,12 @@ public class PermanentBlobCache extends AbstractBlobCache implements JobPermanen
     public File getFile(JobID jobId, PermanentBlobKey key) throws IOException {
         checkNotNull(jobId);
         return getFileInternal(jobId, key);
+    }
+
+    @Override
+    public File getFile(ApplicationID applicationId, PermanentBlobKey key) throws IOException {
+        checkNotNull(applicationId);
+        return getFileInternal(applicationId, key);
     }
 
     /**

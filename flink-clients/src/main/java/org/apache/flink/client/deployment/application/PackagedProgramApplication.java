@@ -27,13 +27,13 @@ import org.apache.flink.client.ClientUtils;
 import org.apache.flink.client.cli.ClientOptions;
 import org.apache.flink.client.deployment.application.executors.EmbeddedExecutorServiceLoader;
 import org.apache.flink.client.program.PackagedProgram;
+import org.apache.flink.client.program.UserJarInfo;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.DeploymentOptions;
 import org.apache.flink.configuration.PipelineOptionsInternal;
 import org.apache.flink.core.execution.PipelineExecutorServiceLoader;
 import org.apache.flink.runtime.application.AbstractApplication;
 import org.apache.flink.runtime.application.ApplicationStoreEntry;
-import org.apache.flink.runtime.blob.PermanentBlobKey;
 import org.apache.flink.runtime.client.DuplicateJobSubmissionException;
 import org.apache.flink.runtime.clusterframework.ApplicationStatus;
 import org.apache.flink.runtime.dispatcher.DispatcherGateway;
@@ -106,7 +106,7 @@ public class PackagedProgramApplication extends AbstractApplication {
 
     private final boolean shutDownOnFinish;
 
-    @Nullable private final PermanentBlobKey userJarBlobKey;
+    @Nullable private final UserJarInfo userJarInfo;
 
     private transient CompletableFuture<Void> applicationCompletionFuture;
 
@@ -149,7 +149,7 @@ public class PackagedProgramApplication extends AbstractApplication {
             final boolean enforceSingleJobExecution,
             final boolean submitFailedJobOnApplicationError,
             final boolean shutDownOnFinish,
-            @Nullable final PermanentBlobKey userJarBlobKey) {
+            @Nullable final UserJarInfo userJarInfo) {
         super(applicationId);
         this.program = checkNotNull(program);
         this.recoveredJobIds = checkNotNull(recoveredJobIds);
@@ -159,7 +159,7 @@ public class PackagedProgramApplication extends AbstractApplication {
         this.enforceSingleJobExecution = enforceSingleJobExecution;
         this.submitFailedJobOnApplicationError = submitFailedJobOnApplicationError;
         this.shutDownOnFinish = shutDownOnFinish;
-        this.userJarBlobKey = userJarBlobKey;
+        this.userJarInfo = userJarInfo;
     }
 
     @Override
@@ -575,7 +575,8 @@ public class PackagedProgramApplication extends AbstractApplication {
                     program,
                     enforceSingleJobExecution,
                     true /* suppress sysout */,
-                    getApplicationId());
+                    getApplicationId(),
+                    userJarInfo);
 
             if (submittedJobIds.isEmpty()) {
                 jobIdsFuture.completeExceptionally(
@@ -680,9 +681,10 @@ public class PackagedProgramApplication extends AbstractApplication {
 
     @Override
     public ApplicationStoreEntry toApplicationStoreEntry() {
+        checkNotNull(userJarInfo, "User jar info");
         return new PackagedProgramApplicationStoreEntry(
                 configuration,
-                userJarBlobKey,
+                userJarInfo.getJarBlobKey(),
                 program.getMainClassName(),
                 Arrays.asList(program.getArguments()),
                 getApplicationId(),

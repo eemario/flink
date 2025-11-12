@@ -267,7 +267,7 @@ class BlobClientTest {
 
             // Retrieve the data (job-unrelated)
             if (blobType == TRANSIENT_BLOB) {
-                validateGetAndClose(client.getInternal(null, receivedKey1), testBuffer);
+                validateGetAndClose(client.getInternal((JobID) null, receivedKey1), testBuffer);
                 // transient BLOBs should be deleted from the server, eventually
                 verifyDeletedEventually(getBlobServer(), null, receivedKey1);
             }
@@ -280,7 +280,10 @@ class BlobClientTest {
 
             // Check reaction to invalid keys for job-unrelated blobs
             final BlobClient finalClient1 = client;
-            assertThatThrownBy(() -> finalClient1.getInternal(null, BlobKey.createKey(blobType)))
+            assertThatThrownBy(
+                            () ->
+                                    finalClient1.getInternal(
+                                            (JobID) null, BlobKey.createKey(blobType)))
                     .isInstanceOf(IOException.class);
 
             // Check reaction to invalid keys for job-related blobs
@@ -358,7 +361,7 @@ class BlobClientTest {
             if (blobType == TRANSIENT_BLOB) {
                 verifyKeyDifferentHashEquals(receivedKey1, receivedKey2);
 
-                validateGetAndClose(client.getInternal(null, receivedKey1), testFile);
+                validateGetAndClose(client.getInternal((JobID) null, receivedKey1), testFile);
                 // transient BLOBs should be deleted from the server, eventually
                 verifyDeletedEventually(getBlobServer(), null, receivedKey1);
             }

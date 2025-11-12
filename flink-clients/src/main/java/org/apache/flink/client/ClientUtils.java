@@ -25,6 +25,7 @@ import org.apache.flink.client.cli.ClientOptions;
 import org.apache.flink.client.program.PackagedProgram;
 import org.apache.flink.client.program.ProgramInvocationException;
 import org.apache.flink.client.program.StreamContextEnvironment;
+import org.apache.flink.client.program.UserJarInfo;
 import org.apache.flink.client.program.rest.retry.ExponentialWaitStrategy;
 import org.apache.flink.client.program.rest.retry.WaitStrategy;
 import org.apache.flink.configuration.Configuration;
@@ -89,6 +90,7 @@ public enum ClientUtils {
                 program,
                 enforceSingleJobExecution,
                 suppressSysout,
+                null,
                 null);
     }
 
@@ -98,7 +100,8 @@ public enum ClientUtils {
             PackagedProgram program,
             boolean enforceSingleJobExecution,
             boolean suppressSysout,
-            @Nullable ApplicationID applicationId)
+            @Nullable ApplicationID applicationId,
+            @Nullable UserJarInfo userJarInfo)
             throws ProgramInvocationException {
         checkNotNull(executorServiceLoader);
         final ClassLoader userCodeClassLoader = program.getUserCodeClassLoader();
@@ -116,7 +119,8 @@ public enum ClientUtils {
                     userCodeClassLoader,
                     enforceSingleJobExecution,
                     suppressSysout,
-                    applicationId);
+                    applicationId,
+                    userJarInfo);
 
             // For DataStream v2.
             ExecutionContextEnvironment.setAsContext(

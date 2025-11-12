@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.blob;
 
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.configuration.BlobServerOptions;
 import org.apache.flink.configuration.Configuration;
@@ -203,6 +204,81 @@ public abstract class AbstractBlobCache implements Closeable {
                         incomingFile,
                         blobKey,
                         jobId);
+            }
+        }
+    }
+
+    protected File getFileInternal(ApplicationID applicationId, BlobKey blobKey)
+            throws IOException {
+        checkArgument(blobKey != null, "BLOB key cannot be null.");
+
+        final File localFile =
+                BlobUtils.getStorageLocation(storageDir.deref(), applicationId, blobKey);
+        readWriteLock.readLock().lock();
+
+        try {
+            if (localFile.exists()) {
+                return localFile;
+            }
+        } finally {
+            readWriteLock.readLock().unlock();
+        }
+
+        // first try the distributed blob store (if available)
+        // use a temporary file (thread-safe without locking)
+        File incomingFile = createTemporaryFilename();
+        try {
+            try {
+                if (blobView.get(applicationId, blobKey, incomingFile)) {
+                    // now move the temp file to our local cache atomically
+                    readWriteLock.writeLock().lock();
+                    try {
+                        BlobUtils.moveTempFileToStore(
+                                incomingFile, applicationId, blobKey, localFile, log, null);
+                    } finally {
+                        readWriteLock.writeLock().unlock();
+                    }
+
+                    return localFile;
+                }
+            } catch (Exception e) {
+                log.info(
+                        "Failed to copy from blob store. Downloading from BLOB server instead.", e);
+            }
+
+            final InetSocketAddress currentServerAddress = serverAddress;
+
+            if (currentServerAddress != null) {
+                // fallback: download from the BlobServer
+                BlobClient.downloadFromBlobServer(
+                        applicationId,
+                        blobKey,
+                        incomingFile,
+                        currentServerAddress,
+                        blobClientConfig,
+                        numFetchRetries);
+
+                readWriteLock.writeLock().lock();
+                try {
+                    BlobUtils.moveTempFileToStore(
+                            incomingFile, applicationId, blobKey, localFile, log, null);
+                } finally {
+                    readWriteLock.writeLock().unlock();
+                }
+            } else {
+                throw new IOException(
+                        "Cannot download from BlobServer, because the server address is unknown.");
+            }
+
+            return localFile;
+        } finally {
+            // delete incomingFile from a failed download
+            if (!incomingFile.delete() && incomingFile.exists()) {
+                log.warn(
+                        "Could not delete the staging file {} for blob key {} and application {}.",
+                        incomingFile,
+                        blobKey,
+                        applicationId);
             }
         }
     }

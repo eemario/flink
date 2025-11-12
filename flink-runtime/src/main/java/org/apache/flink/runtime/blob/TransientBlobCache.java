@@ -123,7 +123,7 @@ public class TransientBlobCache extends AbstractBlobCache implements TransientBl
 
     @Override
     public File getFile(TransientBlobKey key) throws IOException {
-        return getFileInternal(null, key);
+        return getFileInternal((JobID) null, key);
     }
 
     @Override

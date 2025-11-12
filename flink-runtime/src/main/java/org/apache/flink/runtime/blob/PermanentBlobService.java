@@ -79,10 +79,7 @@ public interface PermanentBlobService extends Closeable {
      * @throws IOException if any other error occurs when retrieving the file
      */
     default File getFile(ApplicationID applicationId, PermanentBlobKey key) throws IOException {
-        throw new IOException(
-                String.format(
-                        "Could not find file for application id %s and key %s.",
-                        applicationId, key));
+        throw new UnsupportedOperationException();
     }
 
     /**

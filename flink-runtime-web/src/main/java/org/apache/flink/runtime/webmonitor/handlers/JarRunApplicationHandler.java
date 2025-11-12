@@ -23,6 +23,7 @@ import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.client.deployment.application.PackagedProgramApplication;
 import org.apache.flink.client.deployment.application.executors.EmbeddedExecutor;
 import org.apache.flink.client.program.PackagedProgram;
+import org.apache.flink.client.program.UserJarInfo;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.DeploymentOptions;
 import org.apache.flink.configuration.PipelineOptionsInternal;
@@ -118,6 +119,7 @@ public class JarRunApplicationHandler
                                 new InetSocketAddress(gateway.getHostname(), blobServerPort))
                 .thenCompose(
                         blobServerAddress -> {
+                            Path jarFilePath = context.getJarFile();
                             PermanentBlobKey userJarBlobKey;
                             try (BlobClient blobClient =
                                     new BlobClient(blobServerAddress, configuration)) {
@@ -125,7 +127,7 @@ public class JarRunApplicationHandler
                                         blobClient.uploadFile(
                                                 applicationId,
                                                 new org.apache.flink.core.fs.Path(
-                                                        context.getJarFile().toString()));
+                                                        jarFilePath.toString()));
                             } catch (Exception e) {
                                 throw new CompletionException(e);
                             }
@@ -141,7 +143,9 @@ public class JarRunApplicationHandler
                                             true,
                                             false,
                                             false,
-                                            userJarBlobKey);
+                                            new UserJarInfo(
+                                                    jarFilePath.getFileName().toString(),
+                                                    userJarBlobKey));
 
                             return gateway.submitApplication(application, timeout)
                                     .handle(

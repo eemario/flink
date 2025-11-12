@@ -17,6 +17,7 @@
 
 package org.apache.flink.runtime.resourcemanager.slotmanager;
 
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple6;
@@ -936,6 +937,7 @@ class FineGrainedSlotManagerTest extends FineGrainedSlotManagerTestBase {
                                     new CompletableFuture<>();
 
                             final JobID jobId = new JobID();
+                            final ApplicationID applicationId = new ApplicationID();
                             final TestingTaskExecutorGateway taskExecutorGateway =
                                     new TestingTaskExecutorGatewayBuilder()
                                             .setFreeInactiveSlotsConsumer(
@@ -977,7 +979,9 @@ class FineGrainedSlotManagerTest extends FineGrainedSlotManagerTestBase {
                                             getSlotManager()
                                                     .processResourceRequirements(
                                                             ResourceRequirements.empty(
-                                                                    jobId, "foobar")));
+                                                                    jobId,
+                                                                    applicationId,
+                                                                    "foobar")));
                             assertFutureNotComplete(freeInactiveSlotsJobIdFuture);
 
                             // clear requirements, which should trigger slots being reclaimed
@@ -996,6 +1000,7 @@ class FineGrainedSlotManagerTest extends FineGrainedSlotManagerTestBase {
         new Context() {
             {
                 final JobID jobId = new JobID();
+                final ApplicationID applicationId = new ApplicationID();
                 final CompletableFuture<Void> allocateResourceFuture = new CompletableFuture<>();
 
                 resourceAllocatorBuilder.setDeclareResourceNeededConsumer(
@@ -1038,7 +1043,9 @@ class FineGrainedSlotManagerTest extends FineGrainedSlotManagerTestBase {
                                             getSlotManager()
                                                     .processResourceRequirements(
                                                             ResourceRequirements.empty(
-                                                                    jobId, "foobar")));
+                                                                    jobId,
+                                                                    applicationId,
+                                                                    "foobar")));
 
                             // disconnect to job master,will trigger
                             // PendingTaskManager#clearPendingAllocationsOfJob again

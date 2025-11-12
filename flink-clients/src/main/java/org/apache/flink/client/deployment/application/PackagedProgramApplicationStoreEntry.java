@@ -21,6 +21,7 @@ package org.apache.flink.client.deployment.application;
 import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.client.program.PackagedProgram;
+import org.apache.flink.client.program.UserJarInfo;
 import org.apache.flink.configuration.ConfigUtils;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.PipelineOptions;
@@ -113,7 +114,7 @@ public class PackagedProgramApplicationStoreEntry implements ApplicationStoreEnt
                 true,
                 false,
                 false,
-                userJarBlobKey);
+                new UserJarInfo(jarFile.getName(), userJarBlobKey));
     }
 
     private List<URL> getClasspaths() {

@@ -552,6 +552,8 @@ abstract class AbstractFineGrainedSlotManagerITCase extends FineGrainedSlotManag
                                                         ResourceRequirements.empty(
                                                                 resourceRequirements.getJobId(),
                                                                 resourceRequirements
+                                                                        .getApplicationId(),
+                                                                resourceRequirements
                                                                         .getTargetAddress()));
                                         getSlotManager()
                                                 .registerTaskManager(

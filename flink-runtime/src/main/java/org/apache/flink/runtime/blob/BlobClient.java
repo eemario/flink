@@ -184,6 +184,66 @@ public final class BlobClient implements Closeable {
         } // end loop over retries
     }
 
+    static void downloadFromBlobServer(
+            ApplicationID applicationId,
+            BlobKey blobKey,
+            File localJarFile,
+            InetSocketAddress serverAddress,
+            Configuration blobClientConfig,
+            int numFetchRetries)
+            throws IOException {
+
+        final byte[] buf = new byte[BUFFER_SIZE];
+        LOG.info("Downloading {}/{} from {}", applicationId, blobKey, serverAddress);
+
+        // loop over retries
+        int attempt = 0;
+        while (true) {
+            try (final BlobClient bc = new BlobClient(serverAddress, blobClientConfig);
+                    final InputStream is = bc.getInternal(applicationId, blobKey);
+                    final OutputStream os = new FileOutputStream(localJarFile)) {
+                while (true) {
+                    final int read = is.read(buf);
+                    if (read < 0) {
+                        break;
+                    }
+                    os.write(buf, 0, read);
+                }
+
+                return;
+            } catch (Throwable t) {
+                String message =
+                        "Failed to fetch BLOB "
+                                + applicationId
+                                + "/"
+                                + blobKey
+                                + " from "
+                                + serverAddress
+                                + " and store it under "
+                                + localJarFile.getAbsolutePath();
+                if (attempt < numFetchRetries) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.error(message + " Retrying...", t);
+                    } else {
+                        LOG.error(message + " Retrying...");
+                    }
+                } else {
+                    LOG.error(message + " No retries left.", t);
+                    throw new IOException(message, t);
+                }
+
+                // retry
+                ++attempt;
+                LOG.info(
+                        "Downloading {}/{} from {} (retry {})",
+                        applicationId,
+                        blobKey,
+                        serverAddress,
+                        attempt);
+            }
+        } // end loop over retries
+    }
+
     @Override
     public void close() throws IOException {
         this.socket.close();
@@ -236,6 +296,36 @@ public final class BlobClient implements Closeable {
         }
     }
 
+    InputStream getInternal(ApplicationID applicationId, BlobKey blobKey) throws IOException {
+
+        if (this.socket.isClosed()) {
+            throw new IllegalStateException(
+                    "BLOB Client is not connected. "
+                            + "Client has been shut down or encountered an error before.");
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug(
+                    "GET BLOB {}/{} from {}.",
+                    applicationId,
+                    blobKey,
+                    socket.getLocalSocketAddress());
+        }
+
+        try {
+            OutputStream os = this.socket.getOutputStream();
+            InputStream is = this.socket.getInputStream();
+
+            // Send GET header
+            sendGetHeader(os, applicationId, blobKey);
+            receiveAndCheckGetResponse(is);
+
+            return new BlobInputStream(is, blobKey, os);
+        } catch (Throwable t) {
+            BlobUtils.closeSilently(socket, LOG);
+            throw new IOException("GET operation failed: " + t.getMessage(), t);
+        }
+    }
+
     /**
      * Constructs and writes the header data for a GET operation to the given output stream.
      *
@@ -262,6 +352,21 @@ public final class BlobClient implements Closeable {
             outputStream.write(JOB_RELATED_CONTENT);
             outputStream.write(jobId.getBytes());
         }
+        blobKey.writeToOutputStream(outputStream);
+    }
+
+    private static void sendGetHeader(
+            OutputStream outputStream, ApplicationID applicationId, BlobKey blobKey)
+            throws IOException {
+        checkNotNull(blobKey);
+        checkArgument(applicationId != null, "must be application-related");
+
+        // Signal type of operation
+        outputStream.write(GET_OPERATION);
+
+        // Send application ID and key
+        outputStream.write(APPLICATION_RELATED_CONTENT);
+        outputStream.write(applicationId.getBytes());
         blobKey.writeToOutputStream(outputStream);
     }
 

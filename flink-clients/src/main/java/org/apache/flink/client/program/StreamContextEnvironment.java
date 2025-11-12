@@ -76,6 +76,8 @@ public class StreamContextEnvironment extends StreamExecutionEnvironment {
 
     @Nullable private final ApplicationID applicationId;
 
+    @Nullable private final UserJarInfo userJarInfo;
+
     public StreamContextEnvironment(
             final PipelineExecutorServiceLoader executorServiceLoader,
             final Configuration configuration,
@@ -111,6 +113,7 @@ public class StreamContextEnvironment extends StreamExecutionEnvironment {
                 suppressSysout,
                 programConfigEnabled,
                 programConfigWildcards,
+                null,
                 null);
     }
 
@@ -124,7 +127,8 @@ public class StreamContextEnvironment extends StreamExecutionEnvironment {
             final boolean suppressSysout,
             final boolean programConfigEnabled,
             final Collection<String> programConfigWildcards,
-            @Nullable final ApplicationID applicationId) {
+            @Nullable final ApplicationID applicationId,
+            @Nullable final UserJarInfo userJarInfo) {
         super(executorServiceLoader, configuration, userCodeClassLoader);
         this.suppressSysout = suppressSysout;
         this.enforceSingleJobExecution = enforceSingleJobExecution;
@@ -133,6 +137,7 @@ public class StreamContextEnvironment extends StreamExecutionEnvironment {
         this.programConfigEnabled = programConfigEnabled;
         this.programConfigWildcards = programConfigWildcards;
         this.applicationId = applicationId;
+        this.userJarInfo = userJarInfo;
     }
 
     @Override
@@ -215,6 +220,10 @@ public class StreamContextEnvironment extends StreamExecutionEnvironment {
         if (applicationId != null) {
             streamGraph.setApplicationId(applicationId);
         }
+        if (userJarInfo != null) {
+            streamGraph.addUserJarBlobKey(userJarInfo.getJarBlobKey());
+            streamGraph.addUserJarToSkip(userJarInfo.getJarName());
+        }
         final JobClient jobClient = super.executeAsync(streamGraph);
 
         if (!suppressSysout) {
@@ -243,7 +252,8 @@ public class StreamContextEnvironment extends StreamExecutionEnvironment {
             final ClassLoader userCodeClassLoader,
             final boolean enforceSingleJobExecution,
             final boolean suppressSysout,
-            @Nullable final ApplicationID applicationId) {
+            @Nullable final ApplicationID applicationId,
+            @Nullable final UserJarInfo userJarInfo) {
         final StreamExecutionEnvironmentFactory factory =
                 envInitConfig -> {
                     final boolean programConfigEnabled =
@@ -262,7 +272,8 @@ public class StreamContextEnvironment extends StreamExecutionEnvironment {
                             suppressSysout,
                             programConfigEnabled,
                             programConfigWildcards,
-                            applicationId);
+                            applicationId,
+                            userJarInfo);
                 };
         initializeContextEnvironment(factory);
     }

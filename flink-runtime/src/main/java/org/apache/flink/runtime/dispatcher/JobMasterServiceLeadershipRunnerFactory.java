@@ -92,7 +92,8 @@ public enum JobMasterServiceLeadershipRunnerFactory implements JobManagerRunnerF
         final LibraryCacheManager.ClassLoaderLease classLoaderLease =
                 jobManagerServices
                         .getLibraryCacheManager()
-                        .registerClassLoaderLease(executionPlan.getJobID());
+                        .registerClassLoaderLease(
+                                executionPlan.getJobID(), executionPlan.getApplicationId());
 
         final ClassLoader userCodeClassLoader =
                 classLoaderLease
