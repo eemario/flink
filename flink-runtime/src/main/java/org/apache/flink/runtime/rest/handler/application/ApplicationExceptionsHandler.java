@@ -20,9 +20,9 @@ package org.apache.flink.runtime.rest.handler.application;
 
 import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.runtime.application.ArchivedApplication;
-import org.apache.flink.runtime.messages.webmonitor.ApplicationDetailsInfo;
 import org.apache.flink.runtime.rest.handler.AbstractRestHandler;
 import org.apache.flink.runtime.rest.handler.HandlerRequest;
+import org.apache.flink.runtime.rest.messages.ApplicationExceptionsInfoWithHistory;
 import org.apache.flink.runtime.rest.messages.ApplicationIDPathParameter;
 import org.apache.flink.runtime.rest.messages.ApplicationMessageParameters;
 import org.apache.flink.runtime.rest.messages.EmptyRequestBody;
@@ -41,30 +41,38 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
-/** Handler returning the details for the specified application. */
-public class ApplicationDetailsHandler
+/** Handler returning the exception history for the specified application. */
+public class ApplicationExceptionsHandler
         extends AbstractRestHandler<
                 RestfulGateway,
                 EmptyRequestBody,
-                ApplicationDetailsInfo,
+                ApplicationExceptionsInfoWithHistory,
                 ApplicationMessageParameters>
         implements ApplicationJsonArchivist {
 
-    public ApplicationDetailsHandler(
+    public ApplicationExceptionsHandler(
             GatewayRetriever<? extends RestfulGateway> leaderRetriever,
             Duration timeout,
             Map<String, String> responseHeaders,
-            MessageHeaders<EmptyRequestBody, ApplicationDetailsInfo, ApplicationMessageParameters>
+            MessageHeaders<
+                            EmptyRequestBody,
+                            ApplicationExceptionsInfoWithHistory,
+                            ApplicationMessageParameters>
                     messageHeaders) {
         super(leaderRetriever, timeout, responseHeaders, messageHeaders);
     }
 
     @Override
-    public CompletableFuture<ApplicationDetailsInfo> handleRequest(
+    public CompletableFuture<ApplicationExceptionsInfoWithHistory> handleRequest(
             @Nonnull HandlerRequest<EmptyRequestBody> request, @Nonnull RestfulGateway gateway) {
         ApplicationID applicationId = request.getPathParameter(ApplicationIDPathParameter.class);
+
         return gateway.requestApplication(applicationId, timeout)
-                .thenApply(ApplicationDetailsInfo::fromArchivedApplication);
+                .thenApply(
+                        archivedApplication ->
+                                ApplicationExceptionsInfoWithHistory
+                                        .fromApplicationExceptionHistory(
+                                                archivedApplication.getExceptionHistory()));
     }
 
     @Override
@@ -78,6 +86,8 @@ public class ApplicationDetailsHandler
                                 archivedApplication.getApplicationId().toHexString());
         return Collections.singleton(
                 new ArchivedJson(
-                        path, ApplicationDetailsInfo.fromArchivedApplication(archivedApplication)));
+                        path,
+                        ApplicationExceptionsInfoWithHistory.fromApplicationExceptionHistory(
+                                archivedApplication.getExceptionHistory())));
     }
 }

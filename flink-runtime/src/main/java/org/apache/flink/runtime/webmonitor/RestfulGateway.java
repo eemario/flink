@@ -24,6 +24,7 @@ import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.core.execution.CheckpointType;
 import org.apache.flink.core.execution.SavepointFormatType;
+import org.apache.flink.runtime.application.ArchivedApplication;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsSnapshot;
 import org.apache.flink.runtime.checkpoint.CompletedCheckpoint;
 import org.apache.flink.runtime.clusterframework.types.ResourceID;
@@ -103,10 +104,10 @@ public interface RestfulGateway extends RpcGateway {
      * @param applicationId identifying the application whose {@link ApplicationDetailsInfo} is
      *     requested
      * @param timeout for the asynchronous operation
-     * @return Future containing the {@link ApplicationDetailsInfo} for the given applicationId,
+     * @return Future containing the {@link ArchivedApplication} for the given applicationId,
      *     otherwise {@link FlinkApplicationNotFoundException}
      */
-    CompletableFuture<ApplicationDetailsInfo> requestApplication(
+    CompletableFuture<ArchivedApplication> requestApplication(
             ApplicationID applicationId, @RpcTimeout Duration timeout);
 
     /**

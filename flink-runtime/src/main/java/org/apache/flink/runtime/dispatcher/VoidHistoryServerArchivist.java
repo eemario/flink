@@ -19,8 +19,8 @@
 package org.apache.flink.runtime.dispatcher;
 
 import org.apache.flink.api.common.ApplicationID;
+import org.apache.flink.runtime.application.ArchivedApplication;
 import org.apache.flink.runtime.messages.Acknowledge;
-import org.apache.flink.runtime.messages.webmonitor.ApplicationDetailsInfo;
 import org.apache.flink.runtime.scheduler.ExecutionGraphInfo;
 
 import javax.annotation.Nullable;
@@ -39,7 +39,7 @@ public enum VoidHistoryServerArchivist implements HistoryServerArchivist {
 
     @Override
     public CompletableFuture<Acknowledge> archiveApplication(
-            ApplicationDetailsInfo applicationDetailsInfo) {
+            ArchivedApplication archivedApplication) {
         return CompletableFuture.completedFuture(Acknowledge.get());
     }
 }

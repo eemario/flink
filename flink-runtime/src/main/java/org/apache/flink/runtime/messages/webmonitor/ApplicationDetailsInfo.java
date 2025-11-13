@@ -19,9 +19,12 @@
 package org.apache.flink.runtime.messages.webmonitor;
 
 import org.apache.flink.api.common.ApplicationID;
+import org.apache.flink.api.common.ApplicationState;
+import org.apache.flink.runtime.application.ArchivedApplication;
 import org.apache.flink.runtime.rest.messages.ResponseBody;
 import org.apache.flink.runtime.rest.messages.json.ApplicationIDDeserializer;
 import org.apache.flink.runtime.rest.messages.json.ApplicationIDSerializer;
+import org.apache.flink.util.CollectionUtil;
 import org.apache.flink.util.Preconditions;
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCreator;
@@ -192,4 +195,29 @@ public class ApplicationDetailsInfo implements ResponseBody, Serializable {
     }
 
     // ------------------------------------------------------------------------
+
+    public static ApplicationDetailsInfo fromArchivedApplication(
+            ArchivedApplication archivedApplication) {
+        ApplicationState applicationStatus = archivedApplication.getApplicationStatus();
+        long startTime = archivedApplication.getStatusTimestamp(ApplicationState.RUNNING);
+        long endTime =
+                applicationStatus.isTerminalState()
+                        ? archivedApplication.getStatusTimestamp(applicationStatus)
+                        : -1L;
+        long duration = (endTime >= 0L ? endTime : System.currentTimeMillis()) - startTime;
+        final Map<String, Long> timestamps =
+                CollectionUtil.newHashMapWithExpectedSize(ApplicationState.values().length);
+        for (ApplicationState status : ApplicationState.values()) {
+            timestamps.put(status.toString(), archivedApplication.getStatusTimestamp(status));
+        }
+        return new ApplicationDetailsInfo(
+                archivedApplication.getApplicationId(),
+                archivedApplication.getApplicationName(),
+                applicationStatus.toString(),
+                startTime,
+                endTime,
+                duration,
+                timestamps,
+                archivedApplication.getJobs());
+    }
 }

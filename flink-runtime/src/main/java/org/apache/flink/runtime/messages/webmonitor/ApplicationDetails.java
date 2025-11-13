@@ -19,6 +19,8 @@
 package org.apache.flink.runtime.messages.webmonitor;
 
 import org.apache.flink.api.common.ApplicationID;
+import org.apache.flink.api.common.ApplicationState;
+import org.apache.flink.runtime.application.ArchivedApplication;
 import org.apache.flink.runtime.rest.messages.json.ApplicationIDDeserializer;
 import org.apache.flink.runtime.rest.messages.json.ApplicationIDSerializer;
 
@@ -169,23 +171,30 @@ public class ApplicationDetails implements Serializable {
                 + '}';
     }
 
-    public static ApplicationDetails fromApplicationDetailsInfo(
-            ApplicationDetailsInfo applicationDetailsInfo) {
+    public static ApplicationDetails fromArchivedApplication(
+            ArchivedApplication archivedApplication) {
+        ApplicationState applicationStatus = archivedApplication.getApplicationStatus();
+        long startTime = archivedApplication.getStatusTimestamp(ApplicationState.RUNNING);
+        long endTime =
+                applicationStatus.isTerminalState()
+                        ? archivedApplication.getStatusTimestamp(applicationStatus)
+                        : -1L;
+        long duration = (endTime >= 0L ? endTime : System.currentTimeMillis()) - startTime;
         Map<String, Integer> jobInfo = new HashMap<>();
-        applicationDetailsInfo
-                .getJobs()
+        archivedApplication.getJobs().stream()
+                .map(jobDetails -> jobDetails.getStatus().name())
                 .forEach(
-                        job ->
+                        status ->
                                 jobInfo.compute(
-                                        job.getStatus().name(),
+                                        status,
                                         (key, oldValue) -> (oldValue == null ? 1 : oldValue + 1)));
         return new ApplicationDetails(
-                applicationDetailsInfo.getApplicationId(),
-                applicationDetailsInfo.getApplicationName(),
-                applicationDetailsInfo.getStartTime(),
-                applicationDetailsInfo.getEndTime(),
-                applicationDetailsInfo.getDuration(),
-                applicationDetailsInfo.getApplicationStatus(),
+                archivedApplication.getApplicationId(),
+                archivedApplication.getApplicationName(),
+                startTime,
+                endTime,
+                duration,
+                applicationStatus.toString(),
                 jobInfo);
     }
 }

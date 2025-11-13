@@ -30,6 +30,8 @@ import org.apache.flink.util.concurrent.ScheduledExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.annotation.Nullable;
+
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -67,6 +69,8 @@ public abstract class AbstractApplication implements Serializable {
     private final long[] statusTimestamps;
 
     private final Set<JobID> jobs = new HashSet<>();
+
+    private final List<ApplicationExceptionHistoryEntry> exceptionHistory = new ArrayList<>();
 
     public AbstractApplication(ApplicationID applicationId) {
         this.applicationId = checkNotNull(applicationId);
@@ -122,6 +126,15 @@ public abstract class AbstractApplication implements Serializable {
 
     public Set<JobID> getJobs() {
         return Collections.unmodifiableSet(jobs);
+    }
+
+    public List<ApplicationExceptionHistoryEntry> getExceptionHistory() {
+        return Collections.unmodifiableList(exceptionHistory);
+    }
+
+    protected void addExceptionHistoryEntry(Throwable throwable, @Nullable JobID jobId) {
+        exceptionHistory.add(
+                new ApplicationExceptionHistoryEntry(throwable, System.currentTimeMillis(), jobId));
     }
 
     /**

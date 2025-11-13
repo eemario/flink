@@ -21,8 +21,8 @@ package org.apache.flink.runtime.dispatcher;
 import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.JobManagerOptions;
+import org.apache.flink.runtime.application.ArchivedApplication;
 import org.apache.flink.runtime.messages.Acknowledge;
-import org.apache.flink.runtime.messages.webmonitor.ApplicationDetailsInfo;
 import org.apache.flink.runtime.scheduler.ExecutionGraphInfo;
 import org.apache.flink.runtime.webmonitor.history.ApplicationJsonArchivist;
 import org.apache.flink.runtime.webmonitor.history.JsonArchivist;
@@ -47,11 +47,10 @@ public interface HistoryServerArchivist {
     /**
      * Archives the given application on the history server.
      *
-     * @param applicationDetailsInfo application information used to archive
+     * @param archivedApplication application information used to archive
      * @return Future which is completed once the archiving has been completed.
      */
-    CompletableFuture<Acknowledge> archiveApplication(
-            ApplicationDetailsInfo applicationDetailsInfo);
+    CompletableFuture<Acknowledge> archiveApplication(ArchivedApplication archivedApplication);
 
     static HistoryServerArchivist createHistoryServerArchivist(
             Configuration configuration,

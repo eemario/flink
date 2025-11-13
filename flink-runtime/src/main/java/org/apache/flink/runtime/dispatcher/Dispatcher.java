@@ -45,6 +45,7 @@ import org.apache.flink.runtime.application.ApplicationResultEntry;
 import org.apache.flink.runtime.application.ApplicationResultStore;
 import org.apache.flink.runtime.application.ApplicationStatusListener;
 import org.apache.flink.runtime.application.ApplicationWriter;
+import org.apache.flink.runtime.application.ArchivedApplication;
 import org.apache.flink.runtime.application.SingleJobApplication;
 import org.apache.flink.runtime.blob.BlobServer;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsSnapshot;
@@ -90,7 +91,6 @@ import org.apache.flink.runtime.messages.FlinkApplicationTerminatedWithoutCancel
 import org.apache.flink.runtime.messages.FlinkJobNotFoundException;
 import org.apache.flink.runtime.messages.FlinkJobTerminatedWithoutCancellationException;
 import org.apache.flink.runtime.messages.webmonitor.ApplicationDetails;
-import org.apache.flink.runtime.messages.webmonitor.ApplicationDetailsInfo;
 import org.apache.flink.runtime.messages.webmonitor.ClusterOverview;
 import org.apache.flink.runtime.messages.webmonitor.JobDetails;
 import org.apache.flink.runtime.messages.webmonitor.JobsOverview;
@@ -865,10 +865,10 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
             log.info(
                     "Archiving application ({}) with terminal state {}.", applicationId, newStatus);
+            AbstractApplication application = applications.get(applicationId);
             CompletableFuture<?> applicationArchivingFuture =
                     requestApplication(
-                                    applicationId,
-                                    configuration.get(RpcOptions.ASK_TIMEOUT_DURATION))
+                                    application, configuration.get(RpcOptions.ASK_TIMEOUT_DURATION))
                             .thenCompose(historyServerArchivist::archiveApplication)
                             .exceptionally(
                                     throwable -> {
@@ -1359,7 +1359,12 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
             Duration timeout) {
         List<CompletableFuture<ApplicationDetails>> applicationDetailsFutures =
                 applications.values().stream()
-                        .map(application -> createApplicationDetails(application, timeout))
+                        .map(
+                                application ->
+                                        requestApplication(application, timeout)
+                                                .thenApply(
+                                                        ApplicationDetails
+                                                                ::fromArchivedApplication))
                         .collect(Collectors.toList());
         return FutureUtils.combineAll(applicationDetailsFutures)
                 .thenCompose(
@@ -1407,42 +1412,40 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
     }
 
     @Override
-    public CompletableFuture<ApplicationDetailsInfo> requestApplication(
+    public CompletableFuture<ArchivedApplication> requestApplication(
             ApplicationID applicationId, Duration timeout) {
         if (!applications.containsKey(applicationId)) {
             return FutureUtils.completedExceptionally(
                     new FlinkApplicationNotFoundException(applicationId));
         }
-        AbstractApplication application = applications.get(applicationId);
-        ApplicationState applicationStatus = application.getApplicationStatus();
-        long startTime = application.getStatusTimestamp(ApplicationState.RUNNING);
-        long endTime =
-                applicationStatus.isTerminalState()
-                        ? application.getStatusTimestamp(applicationStatus)
-                        : -1L;
-        long duration = (endTime >= 0L ? endTime : System.currentTimeMillis()) - startTime;
-        final Map<String, Long> timestamps =
-                CollectionUtil.newHashMapWithExpectedSize(ApplicationState.values().length);
-        for (ApplicationState status : ApplicationState.values()) {
-            timestamps.put(status.toString(), application.getStatusTimestamp(status));
+
+        return requestApplication(applications.get(applicationId), timeout);
+    }
+
+    private CompletableFuture<ArchivedApplication> requestApplication(
+            AbstractApplication application, Duration timeout) {
+        long[] stateTimestamps = new long[ApplicationState.values().length];
+        for (ApplicationState applicationState : ApplicationState.values()) {
+            final int ordinal = applicationState.ordinal();
+            stateTimestamps[ordinal] = application.getStatusTimestamp(applicationState);
         }
+
         List<CompletableFuture<JobDetails>> jobDetailsFutures =
                 application.getJobs().stream()
                         .map(jobId -> requestJobDetails(jobId, timeout))
                         .collect(Collectors.toList());
+
         return FutureUtils.combineAll(jobDetailsFutures)
                 .thenCompose(
                         combinedJobDetails ->
                                 CompletableFuture.completedFuture(
-                                        new ApplicationDetailsInfo(
+                                        new ArchivedApplication(
                                                 application.getApplicationId(),
                                                 application.getName(),
-                                                applicationStatus.toString(),
-                                                startTime,
-                                                endTime,
-                                                duration,
-                                                timestamps,
-                                                combinedJobDetails)));
+                                                application.getApplicationStatus(),
+                                                stateTimestamps,
+                                                combinedJobDetails,
+                                                application.getExceptionHistory())));
     }
 
     private CompletableFuture<JobDetails> requestJobDetails(JobID jobId, Duration timeout) {

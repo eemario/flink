@@ -591,7 +591,7 @@ public class DispatcherTest extends AbstractDispatcherTest {
                         .setHistoryServerArchivist(
                                 TestingHistoryServerArchivist.builder()
                                         .setArchiveApplicationFunction(
-                                                applicationDetailsInfo -> {
+                                                archivedApplication -> {
                                                     archiveApplicationFuture.complete(null);
                                                     return CompletableFuture.completedFuture(null);
                                                 })
@@ -612,10 +612,9 @@ public class DispatcherTest extends AbstractDispatcherTest {
                         .setHistoryServerArchivist(
                                 TestingHistoryServerArchivist.builder()
                                         .setArchiveApplicationFunction(
-                                                applicationDetailsInfo -> {
+                                                archivedApplication -> {
                                                     archiveApplicationFuture.complete(
-                                                            applicationDetailsInfo
-                                                                    .getApplicationId());
+                                                            archivedApplication.getApplicationId());
                                                     return CompletableFuture.completedFuture(null);
                                                 })
                                         .build())
@@ -1202,7 +1201,7 @@ public class DispatcherTest extends AbstractDispatcherTest {
                         .setHistoryServerArchivist(
                                 TestingHistoryServerArchivist.builder()
                                         .setArchiveApplicationFunction(
-                                                applicationDetailsInfo -> archiveApplicationFuture)
+                                                archivedApplication -> archiveApplicationFuture)
                                         .build())
                         .build(rpcService);
         dispatcher.start();

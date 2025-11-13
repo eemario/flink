@@ -25,6 +25,7 @@ import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.core.execution.CheckpointType;
 import org.apache.flink.core.execution.SavepointFormatType;
 import org.apache.flink.runtime.application.AbstractApplication;
+import org.apache.flink.runtime.application.ArchivedApplication;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsSnapshot;
 import org.apache.flink.runtime.clusterframework.ApplicationStatus;
 import org.apache.flink.runtime.clusterframework.types.ResourceID;
@@ -34,7 +35,6 @@ import org.apache.flink.runtime.dispatcher.TriggerSavepointMode;
 import org.apache.flink.runtime.executiongraph.ArchivedExecutionGraph;
 import org.apache.flink.runtime.jobmaster.JobResult;
 import org.apache.flink.runtime.messages.Acknowledge;
-import org.apache.flink.runtime.messages.webmonitor.ApplicationDetailsInfo;
 import org.apache.flink.runtime.messages.webmonitor.ClusterOverview;
 import org.apache.flink.runtime.messages.webmonitor.MultipleApplicationsDetails;
 import org.apache.flink.runtime.messages.webmonitor.MultipleJobsDetails;
@@ -145,7 +145,7 @@ public final class TestingDispatcherGateway extends TestingRestfulGateway
             Function<JobID, CompletableFuture<Acknowledge>> cancelJobFunction,
             Function<ApplicationID, CompletableFuture<Acknowledge>> cancelApplicationFunction,
             Function<JobID, CompletableFuture<ArchivedExecutionGraph>> requestJobFunction,
-            Function<ApplicationID, CompletableFuture<ApplicationDetailsInfo>>
+            Function<ApplicationID, CompletableFuture<ArchivedApplication>>
                     requestApplicationFunction,
             Function<JobID, CompletableFuture<ExecutionGraphInfo>>
                     requestExecutionGraphInfoFunction,

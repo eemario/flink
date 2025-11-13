@@ -24,11 +24,11 @@ import org.apache.flink.configuration.CheckpointingOptions;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.RestOptions;
 import org.apache.flink.configuration.RpcOptions;
+import org.apache.flink.runtime.application.ArchivedApplication;
 import org.apache.flink.runtime.blob.TransientBlobService;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsSnapshot;
 import org.apache.flink.runtime.leaderelection.LeaderContender;
 import org.apache.flink.runtime.leaderelection.LeaderElection;
-import org.apache.flink.runtime.messages.webmonitor.ApplicationDetailsInfo;
 import org.apache.flink.runtime.resourcemanager.ResourceManagerGateway;
 import org.apache.flink.runtime.rest.RestServerEndpoint;
 import org.apache.flink.runtime.rest.handler.AbstractRestHandler;
@@ -36,6 +36,7 @@ import org.apache.flink.runtime.rest.handler.RestHandlerConfiguration;
 import org.apache.flink.runtime.rest.handler.RestHandlerSpecification;
 import org.apache.flink.runtime.rest.handler.application.ApplicationCancellationHandler;
 import org.apache.flink.runtime.rest.handler.application.ApplicationDetailsHandler;
+import org.apache.flink.runtime.rest.handler.application.ApplicationExceptionsHandler;
 import org.apache.flink.runtime.rest.handler.application.ApplicationsOverviewHandler;
 import org.apache.flink.runtime.rest.handler.cluster.ClusterConfigHandler;
 import org.apache.flink.runtime.rest.handler.cluster.ClusterOverviewHandler;
@@ -137,6 +138,7 @@ import org.apache.flink.runtime.rest.messages.TerminationModeQueryParameter;
 import org.apache.flink.runtime.rest.messages.YarnCancelJobTerminationHeaders;
 import org.apache.flink.runtime.rest.messages.YarnStopJobTerminationHeaders;
 import org.apache.flink.runtime.rest.messages.application.ApplicationDetailsHeaders;
+import org.apache.flink.runtime.rest.messages.application.ApplicationExceptionsHeaders;
 import org.apache.flink.runtime.rest.messages.checkpoints.CheckpointConfigHeaders;
 import org.apache.flink.runtime.rest.messages.checkpoints.CheckpointStatisticDetailsHeaders;
 import org.apache.flink.runtime.rest.messages.checkpoints.CheckpointingStatisticsHeaders;
@@ -506,6 +508,13 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
                         responseHeaders,
                         ApplicationDetailsHeaders.getInstance());
 
+        ApplicationExceptionsHandler applicationExceptionsHandler =
+                new ApplicationExceptionsHandler(
+                        leaderRetriever,
+                        timeout,
+                        responseHeaders,
+                        ApplicationExceptionsHeaders.getInstance());
+
         JobAccumulatorsHandler jobAccumulatorsHandler =
                 new JobAccumulatorsHandler(
                         leaderRetriever,
@@ -818,6 +827,10 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
         handlers.add(
                 Tuple2.of(
                         applicationDetailsHandler.getMessageHeaders(), applicationDetailsHandler));
+        handlers.add(
+                Tuple2.of(
+                        applicationExceptionsHandler.getMessageHeaders(),
+                        applicationExceptionsHandler));
         handlers.add(Tuple2.of(jobAccumulatorsHandler.getMessageHeaders(), jobAccumulatorsHandler));
         handlers.add(Tuple2.of(taskManagersHandler.getMessageHeaders(), taskManagersHandler));
         handlers.add(
@@ -1290,12 +1303,12 @@ public class WebMonitorEndpoint<T extends RestfulGateway> extends RestServerEndp
 
     @Override
     public Collection<ArchivedJson> archiveApplicationWithPath(
-            ApplicationDetailsInfo applicationDetailsInfo) throws IOException {
+            ArchivedApplication archivedApplication) throws IOException {
         Collection<ArchivedJson> archivedJson =
                 new ArrayList<>(applicationArchivingHandlers.size());
         for (ApplicationJsonArchivist archivist : applicationArchivingHandlers) {
             Collection<ArchivedJson> subArchive =
-                    archivist.archiveApplicationWithPath(applicationDetailsInfo);
+                    archivist.archiveApplicationWithPath(archivedApplication);
             archivedJson.addAll(subArchive);
         }
         return archivedJson;

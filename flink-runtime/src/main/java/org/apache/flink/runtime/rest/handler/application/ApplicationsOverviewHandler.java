@@ -18,8 +18,8 @@
 
 package org.apache.flink.runtime.rest.handler.application;
 
+import org.apache.flink.runtime.application.ArchivedApplication;
 import org.apache.flink.runtime.messages.webmonitor.ApplicationDetails;
-import org.apache.flink.runtime.messages.webmonitor.ApplicationDetailsInfo;
 import org.apache.flink.runtime.messages.webmonitor.MultipleApplicationsDetails;
 import org.apache.flink.runtime.rest.handler.AbstractRestHandler;
 import org.apache.flink.runtime.rest.handler.HandlerRequest;
@@ -69,12 +69,11 @@ public class ApplicationsOverviewHandler
 
     @Override
     public Collection<ArchivedJson> archiveApplicationWithPath(
-            ApplicationDetailsInfo applicationDetailsInfo) throws IOException {
+            ArchivedApplication archivedApplication) throws IOException {
         ResponseBody json =
                 new MultipleApplicationsDetails(
                         Collections.singleton(
-                                ApplicationDetails.fromApplicationDetailsInfo(
-                                        applicationDetailsInfo)));
+                                ApplicationDetails.fromArchivedApplication(archivedApplication)));
         String path = getMessageHeaders().getTargetRestEndpointURL();
         return Collections.singletonList(new ArchivedJson(path, json));
     }

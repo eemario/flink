@@ -24,13 +24,13 @@ import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.core.execution.CheckpointType;
 import org.apache.flink.core.execution.SavepointFormatType;
+import org.apache.flink.runtime.application.ArchivedApplication;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsSnapshot;
 import org.apache.flink.runtime.clusterframework.types.ResourceID;
 import org.apache.flink.runtime.dispatcher.TriggerSavepointMode;
 import org.apache.flink.runtime.executiongraph.ArchivedExecutionGraph;
 import org.apache.flink.runtime.jobmaster.JobResult;
 import org.apache.flink.runtime.messages.Acknowledge;
-import org.apache.flink.runtime.messages.webmonitor.ApplicationDetailsInfo;
 import org.apache.flink.runtime.messages.webmonitor.ClusterOverview;
 import org.apache.flink.runtime.messages.webmonitor.JobsOverview;
 import org.apache.flink.runtime.messages.webmonitor.MultipleApplicationsDetails;
@@ -67,7 +67,7 @@ public class TestingRestfulGateway implements RestfulGateway {
             DEFAULT_REQUEST_JOB_FUNCTION =
                     jobId ->
                             FutureUtils.completedExceptionally(new UnsupportedOperationException());
-    static final Function<ApplicationID, CompletableFuture<ApplicationDetailsInfo>>
+    static final Function<ApplicationID, CompletableFuture<ArchivedApplication>>
             DEFAULT_REQUEST_APPLICATION_FUNCTION =
                     applicationId ->
                             FutureUtils.completedExceptionally(new UnsupportedOperationException());
@@ -166,7 +166,7 @@ public class TestingRestfulGateway implements RestfulGateway {
 
     protected Function<JobID, CompletableFuture<ArchivedExecutionGraph>> requestJobFunction;
 
-    protected Function<ApplicationID, CompletableFuture<ApplicationDetailsInfo>>
+    protected Function<ApplicationID, CompletableFuture<ArchivedApplication>>
             requestApplicationFunction;
 
     protected Function<JobID, CompletableFuture<ExecutionGraphInfo>>
@@ -258,7 +258,7 @@ public class TestingRestfulGateway implements RestfulGateway {
             Function<JobID, CompletableFuture<Acknowledge>> cancelJobFunction,
             Function<ApplicationID, CompletableFuture<Acknowledge>> cancelApplicationFunction,
             Function<JobID, CompletableFuture<ArchivedExecutionGraph>> requestJobFunction,
-            Function<ApplicationID, CompletableFuture<ApplicationDetailsInfo>>
+            Function<ApplicationID, CompletableFuture<ArchivedApplication>>
                     requestApplicationFunction,
             Function<JobID, CompletableFuture<ExecutionGraphInfo>>
                     requestExecutionGraphInfoFunction,
@@ -350,7 +350,7 @@ public class TestingRestfulGateway implements RestfulGateway {
     }
 
     @Override
-    public CompletableFuture<ApplicationDetailsInfo> requestApplication(
+    public CompletableFuture<ArchivedApplication> requestApplication(
             ApplicationID applicationId, Duration timeout) {
         return requestApplicationFunction.apply(applicationId);
     }
@@ -481,7 +481,7 @@ public class TestingRestfulGateway implements RestfulGateway {
         protected Function<JobID, CompletableFuture<Acknowledge>> cancelJobFunction;
         protected Function<ApplicationID, CompletableFuture<Acknowledge>> cancelApplicationFunction;
         protected Function<JobID, CompletableFuture<ArchivedExecutionGraph>> requestJobFunction;
-        protected Function<ApplicationID, CompletableFuture<ApplicationDetailsInfo>>
+        protected Function<ApplicationID, CompletableFuture<ArchivedApplication>>
                 requestApplicationFunction;
         protected Function<JobID, CompletableFuture<ExecutionGraphInfo>>
                 requestExecutionGraphInfoFunction;

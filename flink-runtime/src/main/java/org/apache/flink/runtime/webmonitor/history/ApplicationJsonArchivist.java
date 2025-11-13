@@ -18,7 +18,7 @@
 
 package org.apache.flink.runtime.webmonitor.history;
 
-import org.apache.flink.runtime.messages.webmonitor.ApplicationDetailsInfo;
+import org.apache.flink.runtime.application.ArchivedApplication;
 
 import java.io.IOException;
 import java.util.Collection;
@@ -36,11 +36,11 @@ public interface ApplicationJsonArchivist {
      * <p>The collection should contain one entry for every response that could be generated for the
      * given application. The REST URLs should be unique and must not contain placeholders.
      *
-     * @param applicationDetailsInfo application-related information
+     * @param archivedApplication application-related information
      * @return Collection containing an ArchivedJson for every response that could be generated for
      *     the given application
      * @throws IOException thrown if the JSON generation fails
      */
-    Collection<ArchivedJson> archiveApplicationWithPath(
-            ApplicationDetailsInfo applicationDetailsInfo) throws IOException;
+    Collection<ArchivedJson> archiveApplicationWithPath(ArchivedApplication archivedApplication)
+            throws IOException;
 }

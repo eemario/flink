@@ -237,14 +237,16 @@ public class PackagedProgramApplication extends AbstractApplication {
                                                     dispatcherGateway, ApplicationStatus.SUCCEEDED);
                                         }
 
-                                        final Optional<ApplicationStatus> maybeApplicationStatus =
-                                                extractApplicationStatus(t);
-                                        if (maybeApplicationStatus.isPresent()
+                                        final Optional<UnsuccessfulExecutionException>
+                                                maybeJobFailure = extractJobFailure(t);
+                                        if (maybeJobFailure.isPresent()
                                                 && isCanceledOrFailed(
-                                                        maybeApplicationStatus.get())) {
+                                                        maybeJobFailure.get().getStatus())) {
                                             // the exception is caused by job execution results
+                                            UnsuccessfulExecutionException jobFailure =
+                                                    maybeJobFailure.get();
                                             ApplicationStatus applicationStatus =
-                                                    maybeApplicationStatus.get();
+                                                    jobFailure.getStatus();
                                             LOG.info("Application {}: ", applicationStatus, t);
                                             if (applicationStatus == ApplicationStatus.CANCELED) {
                                                 transitionToCancelling();
@@ -255,6 +257,9 @@ public class PackagedProgramApplication extends AbstractApplication {
                                                         errorHandler);
 
                                             } else {
+                                                addExceptionHistoryEntry(
+                                                        jobFailure.getCause(),
+                                                        jobFailure.getJobID());
                                                 transitionToFailing();
                                                 return finishAsFailed(
                                                         dispatcherGateway,
@@ -358,7 +363,12 @@ public class PackagedProgramApplication extends AbstractApplication {
                     dispatcherGateway, scheduledExecutor, mainThreadExecutor, errorHandler);
         }
 
-        LOG.warn("Application failed unexpectedly: ", t);
+        final Optional<ApplicationExecutionException> maybeApplicationFailure =
+                extractApplicationFailure(t);
+        final Throwable cause =
+                maybeApplicationFailure.isPresent() ? maybeApplicationFailure.get() : t;
+        LOG.warn("Application failed unexpectedly: ", cause);
+        addExceptionHistoryEntry(cause, null);
         transitionToFailing();
         return finishAsFailed(
                 dispatcherGateway, scheduledExecutor, mainThreadExecutor, errorHandler);
@@ -533,10 +543,12 @@ public class PackagedProgramApplication extends AbstractApplication {
                 : CompletableFuture.completedFuture(Acknowledge.get());
     }
 
-    private Optional<ApplicationStatus> extractApplicationStatus(Throwable t) {
-        final Optional<UnsuccessfulExecutionException> maybeException =
-                ExceptionUtils.findThrowable(t, UnsuccessfulExecutionException.class);
-        return maybeException.map(UnsuccessfulExecutionException::getStatus);
+    private Optional<UnsuccessfulExecutionException> extractJobFailure(Throwable t) {
+        return ExceptionUtils.findThrowable(t, UnsuccessfulExecutionException.class);
+    }
+
+    private Optional<ApplicationExecutionException> extractApplicationFailure(Throwable t) {
+        return ExceptionUtils.findThrowable(t, ApplicationExecutionException.class);
     }
 
     /**

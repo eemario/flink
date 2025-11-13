@@ -19,8 +19,8 @@
 package org.apache.flink.runtime.dispatcher;
 
 import org.apache.flink.api.common.ApplicationID;
+import org.apache.flink.runtime.application.ArchivedApplication;
 import org.apache.flink.runtime.messages.Acknowledge;
-import org.apache.flink.runtime.messages.webmonitor.ApplicationDetailsInfo;
 import org.apache.flink.runtime.scheduler.ExecutionGraphInfo;
 
 import javax.annotation.Nullable;
@@ -37,13 +37,13 @@ public class TestingHistoryServerArchivist implements HistoryServerArchivist {
 
     private final BiFunction<ExecutionGraphInfo, ApplicationID, CompletableFuture<Acknowledge>>
             archiveExecutionGraphFunction;
-    private final Function<ApplicationDetailsInfo, CompletableFuture<Acknowledge>>
+    private final Function<ArchivedApplication, CompletableFuture<Acknowledge>>
             archiveApplicationFunction;
 
     public TestingHistoryServerArchivist(
             BiFunction<ExecutionGraphInfo, ApplicationID, CompletableFuture<Acknowledge>>
                     archiveExecutionGraphFunction,
-            Function<ApplicationDetailsInfo, CompletableFuture<Acknowledge>>
+            Function<ArchivedApplication, CompletableFuture<Acknowledge>>
                     archiveApplicationFunction) {
         this.archiveExecutionGraphFunction = archiveExecutionGraphFunction;
         this.archiveApplicationFunction = archiveApplicationFunction;
@@ -57,8 +57,8 @@ public class TestingHistoryServerArchivist implements HistoryServerArchivist {
 
     @Override
     public CompletableFuture<Acknowledge> archiveApplication(
-            ApplicationDetailsInfo applicationDetailsInfo) {
-        return archiveApplicationFunction.apply(applicationDetailsInfo);
+            ArchivedApplication archivedApplication) {
+        return archiveApplicationFunction.apply(archivedApplication);
     }
 
     public static TestingHistoryServerArchivist.Builder builder() {
@@ -70,7 +70,7 @@ public class TestingHistoryServerArchivist implements HistoryServerArchivist {
                 archiveExecutionGraphFunction =
                         (executionGraphInfo, applicationId) ->
                                 CompletableFuture.completedFuture(Acknowledge.get());
-        private Function<ApplicationDetailsInfo, CompletableFuture<Acknowledge>>
+        private Function<ArchivedApplication, CompletableFuture<Acknowledge>>
                 archiveApplicationFunction =
                         ignored -> CompletableFuture.completedFuture(Acknowledge.get());
 
@@ -82,7 +82,7 @@ public class TestingHistoryServerArchivist implements HistoryServerArchivist {
         }
 
         public Builder setArchiveApplicationFunction(
-                Function<ApplicationDetailsInfo, CompletableFuture<Acknowledge>> function) {
+                Function<ArchivedApplication, CompletableFuture<Acknowledge>> function) {
             this.archiveApplicationFunction = function;
             return this;
         }

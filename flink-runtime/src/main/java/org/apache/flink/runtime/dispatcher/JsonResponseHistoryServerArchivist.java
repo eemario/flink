@@ -21,11 +21,11 @@ package org.apache.flink.runtime.dispatcher;
 import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.fs.Path;
+import org.apache.flink.runtime.application.ArchivedApplication;
 import org.apache.flink.runtime.executiongraph.AccessExecutionGraph;
 import org.apache.flink.runtime.history.ArchivePathUtils;
 import org.apache.flink.runtime.history.FsJsonArchivist;
 import org.apache.flink.runtime.messages.Acknowledge;
-import org.apache.flink.runtime.messages.webmonitor.ApplicationDetailsInfo;
 import org.apache.flink.runtime.scheduler.ExecutionGraphInfo;
 import org.apache.flink.runtime.webmonitor.history.ApplicationJsonArchivist;
 import org.apache.flink.runtime.webmonitor.history.JsonArchivist;
@@ -83,10 +83,10 @@ class JsonResponseHistoryServerArchivist implements HistoryServerArchivist {
 
     @Override
     public CompletableFuture<Acknowledge> archiveApplication(
-            ApplicationDetailsInfo applicationDetailsInfo) {
+            ArchivedApplication archivedApplication) {
         Path applicationArchivePath =
                 ArchivePathUtils.getApplicationArchivePath(
-                        configuration, applicationDetailsInfo.getApplicationId());
+                        configuration, archivedApplication.getApplicationId());
 
         return CompletableFuture.runAsync(
                         ThrowingRunnable.unchecked(
@@ -94,7 +94,7 @@ class JsonResponseHistoryServerArchivist implements HistoryServerArchivist {
                                         FsJsonArchivist.writeArchivedJsons(
                                                 applicationArchivePath,
                                                 applicationJsonArchivist.archiveApplicationWithPath(
-                                                        applicationDetailsInfo))),
+                                                        archivedApplication))),
                         ioExecutor)
                 .thenApply(ignored -> Acknowledge.get());
     }
