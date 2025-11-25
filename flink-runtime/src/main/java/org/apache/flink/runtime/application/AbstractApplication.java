@@ -132,7 +132,7 @@ public abstract class AbstractApplication implements Serializable {
         return Collections.unmodifiableList(exceptionHistory);
     }
 
-    protected void addExceptionHistoryEntry(Throwable throwable, @Nullable JobID jobId) {
+    public void addExceptionHistoryEntry(Throwable throwable, @Nullable JobID jobId) {
         exceptionHistory.add(
                 new ApplicationExceptionHistoryEntry(throwable, System.currentTimeMillis(), jobId));
     }

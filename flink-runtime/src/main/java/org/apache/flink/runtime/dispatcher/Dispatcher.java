@@ -863,9 +863,30 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                         .forEach(this::runCleanupRetry);
             }
 
+            AbstractApplication application = applications.get(applicationId);
+            if (application instanceof SingleJobApplication) {
+                checkState(
+                        application.getJobs().size() == 1,
+                        "SingleJobApplication must have one job.");
+
+                JobID jobId = application.getJobs().iterator().next();
+                try {
+                    JobResult jobResult =
+                            requestJobResult(
+                                            jobId,
+                                            configuration.get(RpcOptions.ASK_TIMEOUT_DURATION))
+                                    .get();
+                    if (jobResult.getSerializedThrowable().isPresent()) {
+                        application.addExceptionHistoryEntry(
+                                jobResult.getSerializedThrowable().get(), jobId);
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to get job result for job {}", jobId);
+                }
+            }
+
             log.info(
                     "Archiving application ({}) with terminal state {}.", applicationId, newStatus);
-            AbstractApplication application = applications.get(applicationId);
             CompletableFuture<?> applicationArchivingFuture =
                     requestApplication(
                                     application, configuration.get(RpcOptions.ASK_TIMEOUT_DURATION))
