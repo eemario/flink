@@ -18,6 +18,7 @@
 
 package org.apache.flink.client.program.rest;
 
+import org.apache.flink.api.common.ApplicationID;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
@@ -191,6 +192,7 @@ class RestClusterClientTest {
 
     private JobGraph jobGraph;
     private JobID jobId;
+    private ApplicationID applicationId;
 
     private static final Configuration restConfig;
 
@@ -214,6 +216,7 @@ class RestClusterClientTest {
 
         jobGraph = JobGraphTestUtils.emptyJobGraph();
         jobId = jobGraph.getJobID();
+        applicationId = ApplicationID.generate();
     }
 
     @AfterEach
@@ -1265,6 +1268,7 @@ class RestClusterClientTest {
         final JobDetailsInfo jobDetailsInfo =
                 new JobDetailsInfo(
                         jobId,
+                        applicationId,
                         "foobar",
                         false,
                         JobStatus.RUNNING,
