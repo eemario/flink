@@ -112,6 +112,7 @@ import org.apache.flink.util.FlinkException;
 import org.apache.flink.util.MdcUtils;
 import org.apache.flink.util.MdcUtils.MdcCloseable;
 import org.apache.flink.util.Preconditions;
+import org.apache.flink.util.SerializedThrowable;
 import org.apache.flink.util.SerializedValue;
 import org.apache.flink.util.concurrent.FutureUtils;
 import org.apache.flink.util.function.FunctionUtils;
@@ -183,9 +184,12 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
     private final OnMainThreadJobManagerRunnerRegistry jobManagerRunnerRegistry;
 
-    private final Collection<ExecutionPlan> recoveredJobs;
+    private final Map<JobID, ExecutionPlan> recoveredJobs = new HashMap<>();
 
-    private final Collection<JobResult> recoveredDirtyJobs;
+    private final Map<ApplicationID, Set<JobID>> recoveredJobIdsByApplicationId = new HashMap<>();
+
+    private final Map<ApplicationID, Collection<JobResult>>
+            recoveredDirtyJobResultsByApplicationId = new HashMap<>();
 
     private final DispatcherBootstrapFactory dispatcherBootstrapFactory;
 
@@ -229,14 +233,14 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
     private final Map<ApplicationID, AbstractApplication> applications = new HashMap<>();
 
-    private final Map<ApplicationID, Set<JobID>> recoveredApplicationJobIds = new HashMap<>();
-
     /** ExecutionGraphInfo for the terminated job whose application is not terminated yet. */
     private final Map<JobID, CompletableFuture<ExecutionGraphInfo>> partialExecutionGraphInfoStore =
             new HashMap<>();
 
-    private final Map<ApplicationID, CompletableFuture<?>> applicationArchivingFutures =
+    private final Map<ApplicationID, CompletableFuture<?>> applicationTerminationFutures =
             new HashMap<>();
+
+    private final Map<JobID, ApplicationID> jobIdsToApplicationIds = new HashMap<>();
 
     /** Enum to distinguish between initial job submission and re-submission for recovery. */
     protected enum ExecutionType {
@@ -334,9 +338,21 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
         this.dispatcherBootstrapFactory = checkNotNull(dispatcherBootstrapFactory);
 
-        this.recoveredJobs = new HashSet<>(recoveredJobs);
+        for (ExecutionPlan executionPlan : recoveredJobs) {
+            final JobID jobId = executionPlan.getJobID();
+            final ApplicationID applicationId = executionPlan.getApplicationId().orElse(null);
+            this.recoveredJobs.put(jobId, executionPlan);
+            this.recoveredJobIdsByApplicationId
+                    .computeIfAbsent(applicationId, ignored -> new HashSet<>())
+                    .add(jobId);
+        }
 
-        this.recoveredDirtyJobs = new HashSet<>(recoveredDirtyJobs);
+        for (JobResult jobResult : recoveredDirtyJobs) {
+            final ApplicationID applicationId = jobResult.getApplicationId().orElse(null);
+            this.recoveredDirtyJobResultsByApplicationId
+                    .computeIfAbsent(applicationId, ignored -> new ArrayList<>())
+                    .add(jobResult);
+        }
 
         this.blobServer.retainJobs(
                 recoveredJobs.stream().map(ExecutionPlan::getJobID).collect(Collectors.toSet()),
@@ -384,7 +400,12 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
             throw exception;
         }
 
-        startCleanupRetries();
+        // clean up jobs that do not have a corresponding application
+        Collection<JobResult> dirtyJobResultsWithoutApplication =
+                recoveredDirtyJobResultsByApplicationId.remove(null);
+        if (dirtyJobResultsWithoutApplication != null) {
+            dirtyJobResultsWithoutApplication.forEach(this::runCleanupRetry);
+        }
 
         this.dispatcherBootstrap =
                 this.dispatcherBootstrapFactory.create(
@@ -393,11 +414,27 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                         this::onFatalError);
 
         if (dispatcherBootstrap instanceof ApplicationBootstrap) {
-            startRecoveredJobs(false);
+            checkState(!recoveredJobIdsByApplicationId.containsKey(null));
+
+            // defer starting recovered jobs, as they might be skipped based on user logic
             internalSubmitApplication(((ApplicationBootstrap) dispatcherBootstrap).getApplication())
                     .get();
         } else {
-            startRecoveredJobs(true);
+            Set<JobID> recoveredJobIdsWithoutApplication =
+                    recoveredJobIdsByApplicationId.remove(null);
+            if (recoveredJobIdsWithoutApplication != null) {
+                for (JobID jobId : recoveredJobIdsWithoutApplication) {
+                    ApplicationID applicationId = ApplicationID.fromHexString(jobId.toHexString());
+                    recoveredJobIdsByApplicationId.put(applicationId, Collections.singleton(jobId));
+                }
+            }
+
+            // start recovered jobs by wrapping them into a SingleJobApplication
+            for (ExecutionPlan recoveredJob : recoveredJobs.values()) {
+                runRecoveredJob(recoveredJob, true);
+            }
+            recoveredJobs.clear();
+            recoveredJobIdsByApplicationId.clear();
         }
     }
 
@@ -433,13 +470,6 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                 "There should be no overlap between the recovered ExecutionPlans and the passed dirty JobResults based on their job ID.");
     }
 
-    private void startRecoveredJobs(boolean wrapIntoApplication) {
-        for (ExecutionPlan recoveredJob : recoveredJobs) {
-            runRecoveredJob(recoveredJob, wrapIntoApplication);
-        }
-        recoveredJobs.clear();
-    }
-
     /**
      * Runs a recovered job in HA mode.
      *
@@ -460,25 +490,18 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
         initJobClientExpiredTime(recoveredJob);
 
-        try (MdcCloseable ignored =
-                MdcUtils.withContext(MdcUtils.asContextData(recoveredJob.getJobID()))) {
-            if (recoveredJob.getApplicationId().isPresent()) {
-                recoveredApplicationJobIds
-                        .computeIfAbsent(
-                                recoveredJob.getApplicationId().get(),
-                                applicationId -> new HashSet<>())
-                        .add(recoveredJob.getJobID());
-                if (wrapIntoApplication) {
-                    internalSubmitApplication(new SingleJobApplication(recoveredJob, true)).get();
-                }
+        final JobID jobId = recoveredJob.getJobID();
+        try (MdcCloseable ignored = MdcUtils.withContext(MdcUtils.asContextData(jobId))) {
+            if (wrapIntoApplication) {
+                internalSubmitApplication(new SingleJobApplication(recoveredJob, true)).get();
             }
+            final ApplicationID applicationId = recoveredJob.getApplicationId().orElseThrow();
+            associateJobWithApplication(jobId, applicationId);
             runJob(createJobMasterRunner(recoveredJob), ExecutionType.RECOVERY);
         } catch (Throwable throwable) {
             onFatalError(
                     new DispatcherException(
-                            String.format(
-                                    "Could not start recovered job %s.", recoveredJob.getJobID()),
-                            throwable));
+                            String.format("Could not start recovered job %s.", jobId), throwable));
         }
     }
 
@@ -508,13 +531,13 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
         }
     }
 
-    private void startCleanupRetries() {
-        recoveredDirtyJobs.forEach(this::runCleanupRetry);
-        recoveredDirtyJobs.clear();
-    }
-
     private void runCleanupRetry(final JobResult jobResult) {
         checkNotNull(jobResult);
+
+        if (jobResult.getApplicationId().isPresent()) {
+            final ApplicationID applicationId = jobResult.getApplicationId().get();
+            associateJobWithApplication(jobResult.getJobId(), applicationId);
+        }
 
         try {
             runJob(createJobCleanupRunner(jobResult), ExecutionType.RECOVERY);
@@ -606,7 +629,8 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                                         DuplicateJobSubmissionException.ofGloballyTerminated(
                                                 jobID));
                             } else if (jobManagerRunnerRegistry.isRegistered(jobID)
-                                    || submittedAndWaitingTerminationJobIDs.contains(jobID)) {
+                                    || submittedAndWaitingTerminationJobIDs.contains(jobID)
+                                    || recoveredJobs.containsKey(jobID)) {
                                 // job with the given jobID is not terminated, yet
                                 return FutureUtils.completedExceptionally(
                                         DuplicateJobSubmissionException.of(jobID));
@@ -622,6 +646,31 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                             }
                         },
                         getMainThreadExecutor(jobID));
+    }
+
+    @Override
+    public CompletableFuture<Acknowledge> recoverJob(JobID jobId, Duration timeout) {
+        try (MdcCloseable ignored = MdcUtils.withContext(MdcUtils.asContextData(jobId))) {
+            log.info("Received job recovery request for job {}.", jobId);
+        }
+        final ExecutionPlan executionPlan = recoveredJobs.remove(jobId);
+        if (executionPlan == null) {
+            return FutureUtils.completedExceptionally(
+                    new JobSubmissionException(jobId, "Cannot find the recovered job."));
+        }
+
+        final ApplicationID applicationId = executionPlan.getApplicationId().orElse(null);
+        checkState(recoveredJobIdsByApplicationId.containsKey(applicationId));
+
+        runRecoveredJob(executionPlan, false);
+
+        Set<JobID> jobIds = recoveredJobIdsByApplicationId.get(applicationId);
+        jobIds.remove(jobId);
+        if (jobIds.isEmpty()) {
+            recoveredJobIdsByApplicationId.remove(applicationId);
+        }
+
+        return CompletableFuture.completedFuture(Acknowledge.get());
     }
 
     @Override
@@ -664,11 +713,16 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
         log.info("Submitting application '{}' ({}).", application.getName(), applicationId);
 
         applications.put(applicationId, application);
-        Set<JobID> jobs = recoveredApplicationJobIds.remove(applicationId);
-        if (jobs != null) {
-            jobs.forEach(application::addJob);
-        }
         application.registerStatusListener(this);
+        applicationTerminationFutures.put(applicationId, new CompletableFuture<>());
+
+        // cleanup dirty job results for the application
+        Collection<JobResult> dirtyJobResults =
+                recoveredDirtyJobResultsByApplicationId.remove(applicationId);
+        if (dirtyJobResults != null) {
+            dirtyJobResults.forEach(this::runCleanupRetry);
+        }
+
         return application.execute(
                 getSelfGateway(DispatcherGateway.class),
                 getRpcService().getScheduledExecutor(),
@@ -685,12 +739,35 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                     "Application %s does not exist.",
                     applicationId);
             checkState(
-                    !applicationArchivingFutures.containsKey(applicationId),
-                    "The application (" + applicationId + ") has already been archived.");
+                    !applicationTerminationFutures.get(applicationId).isDone(),
+                    "The application (" + applicationId + ") has already terminated.");
+
+            AbstractApplication application = applications.get(applicationId);
+            Set<JobID> remainingRecoveredJobIds =
+                    recoveredJobIdsByApplicationId.remove(applicationId);
+            if (remainingRecoveredJobIds != null) {
+                for (JobID jobId : remainingRecoveredJobIds) {
+                    final ExecutionPlan executionPlan = recoveredJobs.remove(jobId);
+                    checkNotNull(executionPlan);
+
+                    final JobResult jobResult =
+                            new JobResult.Builder()
+                                    .jobId(jobId)
+                                    .jobStatus(JobStatus.FAILED)
+                                    .netRuntime(0)
+                                    .serializedThrowable(
+                                            new SerializedThrowable(
+                                                    new FlinkException(
+                                                            "Job recovery is not needed.")))
+                                    .jobName(executionPlan.getName())
+                                    .applicationId(applicationId)
+                                    .build();
+                    runCleanupRetry(jobResult);
+                }
+            }
 
             log.info(
                     "Archiving application ({}) with terminal state {}.", applicationId, newStatus);
-            AbstractApplication application = applications.get(applicationId);
             long[] stateTimestamps = new long[ApplicationState.values().length];
             for (ApplicationState applicationState : ApplicationState.values()) {
                 final int ordinal = applicationState.ordinal();
@@ -745,7 +822,10 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                                                         });
                                     },
                                     getMainThreadExecutor());
-            applicationArchivingFutures.put(applicationId, applicationArchivingFuture);
+
+            applicationArchivingFuture.thenRunAsync(
+                    () -> applicationTerminationFutures.get(applicationId).complete(null),
+                    getMainThreadExecutor());
         }
     }
 
@@ -767,8 +847,23 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
     }
 
     @VisibleForTesting
-    CompletableFuture<?> getApplicationArchivingFuture(ApplicationID applicationId) {
-        return applicationArchivingFutures.get(applicationId);
+    CompletableFuture<?> getApplicationTerminationFuture(ApplicationID applicationId) {
+        return applicationTerminationFutures.get(applicationId);
+    }
+
+    @VisibleForTesting
+    Map<JobID, ExecutionPlan> getRecoveredJobs() {
+        return recoveredJobs;
+    }
+
+    @VisibleForTesting
+    Map<ApplicationID, Set<JobID>> getRecoveredJobIdsByApplicationId() {
+        return recoveredJobIdsByApplicationId;
+    }
+
+    @VisibleForTesting
+    Map<ApplicationID, Collection<JobResult>> getRecoveredDirtyJobResultsByApplicationId() {
+        return recoveredDirtyJobResultsByApplicationId;
     }
 
     /**
@@ -792,13 +887,13 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
         Optional<AbstractApplication> optionalApplication = getApplicationForJob(executionPlan);
         if (optionalApplication.isPresent()) {
-            AbstractApplication application = optionalApplication.get();
+            ApplicationID applicationId = optionalApplication.get().getApplicationId();
             log.info(
                     "Submitting job '{}' ({}) with associated application ({}).",
                     jobName,
                     jobId,
-                    application.getApplicationId());
-            application.addJob(jobId);
+                    applicationId);
+            associateJobWithApplication(jobId, applicationId);
         } else {
             // This can only occur in tests for submitJob that submit jobs without an application
             log.warn("Submitting job '{}' ({}) without associated application.", jobName, jobId);
@@ -831,6 +926,13 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                                     applicationId);
                             return applications.get(applicationId);
                         });
+    }
+
+    private void associateJobWithApplication(JobID jobId, ApplicationID applicationId) {
+        checkState(applications.containsKey(applicationId));
+
+        applications.get(applicationId).addJob(jobId);
+        jobIdsToApplicationIds.put(jobId, applicationId);
     }
 
     private CompletableFuture<Acknowledge> handleTermination(
@@ -1522,7 +1624,7 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                 allJobsTerminationFuture,
                 () ->
                         FutureUtils.runAfterwards(
-                                FutureUtils.completeAll(applicationArchivingFutures.values()),
+                                FutureUtils.completeAll(applicationTerminationFutures.values()),
                                 () -> shutDownFuture.complete(applicationStatus)));
         return CompletableFuture.completedFuture(Acknowledge.get());
     }
@@ -1703,9 +1805,22 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
     private CompletableFuture<Void> removeJob(JobID jobId, CleanupJobState cleanupJobState) {
         if (cleanupJobState.isGlobalCleanup()) {
+            final ApplicationID applicationId = jobIdsToApplicationIds.get(jobId);
+            final CompletableFuture<?> applicationTerminationFuture;
+            if (applicationId == null) {
+                // This can only occur in tests that submit jobs without an application
+                applicationTerminationFuture = CompletableFuture.completedFuture(null);
+            } else {
+                applicationTerminationFuture =
+                        checkNotNull(applicationTerminationFutures.get(applicationId));
+            }
+
+            // wait for the application termination before marking the job result as clean
             return globalResourceCleaner
                     .cleanupAsync(jobId)
-                    .thenCompose(unused -> jobResultStore.markResultAsCleanAsync(jobId))
+                    .thenCombine(
+                            applicationTerminationFuture,
+                            (unused1, unused2) -> jobResultStore.markResultAsCleanAsync(jobId))
                     .handle(
                             (unusedVoid, e) -> {
                                 if (e == null) {

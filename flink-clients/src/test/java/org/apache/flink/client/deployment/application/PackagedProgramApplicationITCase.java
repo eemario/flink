@@ -31,8 +31,6 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.DeploymentOptions;
 import org.apache.flink.configuration.HighAvailabilityOptions;
 import org.apache.flink.configuration.PipelineOptionsInternal;
-import org.apache.flink.core.testutils.FlinkAssertions;
-import org.apache.flink.runtime.client.DuplicateJobSubmissionException;
 import org.apache.flink.runtime.dispatcher.SessionDispatcherFactory;
 import org.apache.flink.runtime.dispatcher.runner.DefaultDispatcherRunnerFactory;
 import org.apache.flink.runtime.entrypoint.component.DefaultDispatcherResourceManagerComponentFactory;
@@ -68,6 +66,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 /** Integration tests related to {@link PackagedProgramApplication}. */
 class PackagedProgramApplicationITCase {
@@ -195,10 +194,8 @@ class PackagedProgramApplicationITCase {
             awaitClusterStopped(cluster);
         }
 
-        FlinkAssertions.assertThatChainOfCauses(ErrorHandlingSubmissionJob.getSubmissionException())
-                .as(
-                        "The job's main method shouldn't have been succeeded due to a DuplicateJobSubmissionException.")
-                .hasAtLeastOneElementOfType(DuplicateJobSubmissionException.class);
+        // submission should succeed
+        assertNull(ErrorHandlingSubmissionJob.getSubmissionException());
 
         assertThat(jobResultStore.hasDirtyJobResultEntryAsync(jobId).get()).isFalse();
         assertThat(jobResultStore.hasCleanJobResultEntryAsync(jobId).get()).isTrue();

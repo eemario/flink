@@ -49,6 +49,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
@@ -552,8 +553,14 @@ public class PackagedProgramApplication extends AbstractApplication {
                                             .key())));
             return;
         }
-        final List<JobID> applicationJobIds =
+
+        final List<JobID> submittedJobIds = new ArrayList<>();
+        final List<JobID> recoveredJobIds =
                 recoveredJobInfos.stream().map(JobInfo::getJobId).collect(Collectors.toList());
+        final List<JobID> terminalJobIds =
+                recoveredTerminalJobInfos.stream()
+                        .map(JobInfo::getJobId)
+                        .collect(Collectors.toList());
         try {
             if (program == null) {
                 LOG.info("Reconstructing program from descriptor {}", programDescriptor);
@@ -562,7 +569,11 @@ public class PackagedProgramApplication extends AbstractApplication {
 
             final PipelineExecutorServiceLoader executorServiceLoader =
                     new EmbeddedExecutorServiceLoader(
-                            applicationJobIds, dispatcherGateway, scheduledExecutor);
+                            submittedJobIds,
+                            recoveredJobIds,
+                            terminalJobIds,
+                            dispatcherGateway,
+                            scheduledExecutor);
 
             ClientUtils.executeProgram(
                     executorServiceLoader,
@@ -573,12 +584,12 @@ public class PackagedProgramApplication extends AbstractApplication {
                     getApplicationId(),
                     getAllRecoveredJobInfos());
 
-            if (applicationJobIds.isEmpty()) {
+            if (submittedJobIds.isEmpty()) {
                 jobIdsFuture.completeExceptionally(
                         new ApplicationExecutionException(
                                 "The application contains no execute() calls."));
             } else {
-                jobIdsFuture.complete(applicationJobIds);
+                jobIdsFuture.complete(submittedJobIds);
             }
         } catch (Throwable t) {
             // If we're running in a single job execution mode, it's safe to consider re-submission
@@ -591,7 +602,7 @@ public class PackagedProgramApplication extends AbstractApplication {
                 final JobID jobId = maybeDuplicate.get().getJobID();
                 tolerateMissingResult.add(jobId);
                 jobIdsFuture.complete(Collections.singletonList(jobId));
-            } else if (submitFailedJobOnApplicationError && applicationJobIds.isEmpty()) {
+            } else if (submitFailedJobOnApplicationError && submittedJobIds.isEmpty()) {
                 final JobID failedJobId =
                         JobID.fromHexString(
                                 configuration.get(PipelineOptionsInternal.PIPELINE_FIXED_JOB_ID));

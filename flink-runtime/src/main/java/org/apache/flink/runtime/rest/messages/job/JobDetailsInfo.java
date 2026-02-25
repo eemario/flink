@@ -109,6 +109,7 @@ public class JobDetailsInfo implements ResponseBody {
     private final JobStatus jobStatus;
 
     @JsonProperty(FIELD_NAME_JOB_TYPE)
+    @Nullable
     private final JobType jobType;
 
     @JsonProperty(FIELD_NAME_START_TIME)
@@ -160,7 +161,7 @@ public class JobDetailsInfo implements ResponseBody {
             @JsonProperty(FIELD_NAME_JOB_NAME) String name,
             @JsonProperty(FIELD_NAME_IS_STOPPABLE) boolean isStoppable,
             @JsonProperty(FIELD_NAME_JOB_STATUS) JobStatus jobStatus,
-            @JsonProperty(FIELD_NAME_JOB_TYPE) JobType jobType,
+            @JsonProperty(FIELD_NAME_JOB_TYPE) @Nullable JobType jobType,
             @JsonProperty(FIELD_NAME_START_TIME) long startTime,
             @JsonProperty(FIELD_NAME_END_TIME) long endTime,
             @JsonProperty(FIELD_NAME_DURATION) long duration,
@@ -180,7 +181,7 @@ public class JobDetailsInfo implements ResponseBody {
         this.name = Preconditions.checkNotNull(name);
         this.isStoppable = isStoppable;
         this.jobStatus = Preconditions.checkNotNull(jobStatus);
-        this.jobType = Preconditions.checkNotNull(jobType);
+        this.jobType = jobType;
         this.startTime = startTime;
         this.endTime = endTime;
         this.duration = duration;

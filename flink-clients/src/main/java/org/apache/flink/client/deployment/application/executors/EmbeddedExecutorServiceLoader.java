@@ -40,6 +40,10 @@ public class EmbeddedExecutorServiceLoader implements PipelineExecutorServiceLoa
 
     private final Collection<JobID> submittedJobIds;
 
+    private final Collection<JobID> recoveredJobIds;
+
+    private final Collection<JobID> terminalJobIds;
+
     private final DispatcherGateway dispatcherGateway;
 
     private final ScheduledExecutor retryExecutor;
@@ -55,16 +59,21 @@ public class EmbeddedExecutorServiceLoader implements PipelineExecutorServiceLoa
      */
     public EmbeddedExecutorServiceLoader(
             final Collection<JobID> submittedJobIds,
+            final Collection<JobID> recoveredJobIds,
+            final Collection<JobID> terminalJobIds,
             final DispatcherGateway dispatcherGateway,
             final ScheduledExecutor retryExecutor) {
         this.submittedJobIds = checkNotNull(submittedJobIds);
+        this.recoveredJobIds = checkNotNull(recoveredJobIds);
+        this.terminalJobIds = checkNotNull(terminalJobIds);
         this.dispatcherGateway = checkNotNull(dispatcherGateway);
         this.retryExecutor = checkNotNull(retryExecutor);
     }
 
     @Override
     public PipelineExecutorFactory getExecutorFactory(final Configuration configuration) {
-        return new EmbeddedExecutorFactory(submittedJobIds, dispatcherGateway, retryExecutor);
+        return new EmbeddedExecutorFactory(
+                submittedJobIds, recoveredJobIds, terminalJobIds, dispatcherGateway, retryExecutor);
     }
 
     @Override
