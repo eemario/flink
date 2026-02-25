@@ -43,6 +43,7 @@ import org.slf4j.LoggerFactory;
 import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -71,6 +72,10 @@ public class EmbeddedExecutor implements PipelineExecutor {
 
     private final Collection<JobID> submittedJobIds;
 
+    private final Collection<JobID> recoveredJobIds;
+
+    private final Collection<JobID> terminalJobIds;
+
     private final DispatcherGateway dispatcherGateway;
 
     private final EmbeddedJobClientCreator jobClientCreator;
@@ -93,7 +98,25 @@ public class EmbeddedExecutor implements PipelineExecutor {
             final DispatcherGateway dispatcherGateway,
             final Configuration configuration,
             final EmbeddedJobClientCreator jobClientCreator) {
+        this(
+                submittedJobIds,
+                Collections.emptyList(),
+                Collections.emptyList(),
+                dispatcherGateway,
+                configuration,
+                jobClientCreator);
+    }
+
+    public EmbeddedExecutor(
+            final Collection<JobID> submittedJobIds,
+            final Collection<JobID> recoveredJobIds,
+            final Collection<JobID> terminalJobIds,
+            final DispatcherGateway dispatcherGateway,
+            final Configuration configuration,
+            final EmbeddedJobClientCreator jobClientCreator) {
         this.submittedJobIds = checkNotNull(submittedJobIds);
+        this.recoveredJobIds = checkNotNull(recoveredJobIds);
+        this.terminalJobIds = checkNotNull(terminalJobIds);
         this.dispatcherGateway = checkNotNull(dispatcherGateway);
         this.jobClientCreator = checkNotNull(jobClientCreator);
         this.jobStatusChangedListeners =
@@ -122,10 +145,25 @@ public class EmbeddedExecutor implements PipelineExecutor {
 
         // Skip resubmission if the job is recovered via HA.
         // When optJobId is present, the streamGraph's ID is deterministically derived from it. In
-        // this case, if the streamGraph's ID is in submittedJobIds, it means the job was submitted
-        // in a previous run and should not be resubmitted.
-        if (optJobId.isPresent() && submittedJobIds.contains(streamGraph.getJobID())) {
-            return getJobClientFuture(streamGraph.getJobID(), userCodeClassloader);
+        // this case, if the streamGraph's ID is in terminalJobIds or submittedJobIds, it means the
+        // job was submitted in a previous run and should not be resubmitted.
+        if (optJobId.isPresent()) {
+            final JobID actualJobId = streamGraph.getJobID();
+            if (terminalJobIds.contains(actualJobId)) {
+                LOG.info("Job {} reached a terminal state in a previous execution.", actualJobId);
+                return getJobClientFuture(actualJobId, userCodeClassloader);
+            }
+
+            if (recoveredJobIds.contains(actualJobId)) {
+                final Duration timeout = configuration.get(ClientOptions.CLIENT_TIMEOUT);
+                return dispatcherGateway
+                        .recoverJob(actualJobId, timeout)
+                        .thenCompose(
+                                ack -> {
+                                    LOG.info("Job {} is recovered successfully.", actualJobId);
+                                    return getJobClientFuture(actualJobId, userCodeClassloader);
+                                });
+            }
         }
 
         return submitAndGetJobClientFuture(pipeline, configuration, userCodeClassloader);
@@ -133,7 +171,7 @@ public class EmbeddedExecutor implements PipelineExecutor {
 
     private CompletableFuture<JobClient> getJobClientFuture(
             final JobID jobId, final ClassLoader userCodeClassloader) {
-        LOG.info("Job {} was recovered successfully.", jobId);
+        submittedJobIds.add(jobId);
         return CompletableFuture.completedFuture(
                 jobClientCreator.getJobClient(jobId, userCodeClassloader));
     }

@@ -159,7 +159,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 
 /** Test for the {@link Dispatcher} component. */
@@ -606,7 +605,7 @@ public class DispatcherTest extends AbstractDispatcherTest {
         ApplicationID applicationId = mockApplicationStatusChange(ApplicationState.RUNNING);
         // verify that archive application is not called
         assertFalse(archiveApplicationFuture.isDone());
-        assertNull(dispatcher.getApplicationArchivingFuture(applicationId));
+        assertFalse(dispatcher.getApplicationTerminationFuture(applicationId).isDone());
     }
 
     @Test
@@ -629,7 +628,7 @@ public class DispatcherTest extends AbstractDispatcherTest {
         // verify that archive application is called with the application id
         assertEquals(applicationId, archiveApplicationFuture.get());
         dispatcher
-                .getApplicationArchivingFuture(applicationId)
+                .getApplicationTerminationFuture(applicationId)
                 .get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
     }
 
@@ -640,7 +639,7 @@ public class DispatcherTest extends AbstractDispatcherTest {
         final ApplicationID applicationId = mockApplicationStatusChange(ApplicationState.FINISHED);
         // wait for archive to complete
         dispatcher
-                .getApplicationArchivingFuture(applicationId)
+                .getApplicationTerminationFuture(applicationId)
                 .get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
         assertThrows(
                 IllegalStateException.class,
@@ -649,13 +648,14 @@ public class DispatcherTest extends AbstractDispatcherTest {
                                 applicationId, ApplicationState.FAILED));
     }
 
-    private ApplicationID mockApplicationStatusChange(ApplicationState targetState) {
+    private ApplicationID mockApplicationStatusChange(ApplicationState targetState)
+            throws Exception {
         final ApplicationID applicationId = new ApplicationID();
         dispatcher
-                .getApplications()
-                .put(
-                        applicationId,
-                        TestingApplication.builder().setApplicationId(applicationId).build());
+                .submitApplication(
+                        TestingApplication.builder().setApplicationId(applicationId).build(),
+                        TIMEOUT)
+                .get();
         dispatcher.notifyApplicationStatusChange(applicationId, targetState);
         return applicationId;
     }
@@ -1177,6 +1177,272 @@ public class DispatcherTest extends AbstractDispatcherTest {
                                 assertThat(t)
                                         .hasCauseInstanceOf(
                                                 DuplicateApplicationSubmissionException.class));
+    }
+
+    @Test
+    public void testRecoverJobSuccessfully() throws Exception {
+        final JobGraph recoveredJobGraph = JobGraphTestUtils.emptyJobGraph();
+        final JobID jobId = recoveredJobGraph.getJobID();
+        final ApplicationID applicationId = new ApplicationID();
+        recoveredJobGraph.setApplicationId(applicationId);
+
+        final TestingJobMasterServiceLeadershipRunnerFactory jobManagerRunnerFactory =
+                new TestingJobMasterServiceLeadershipRunnerFactory();
+
+        dispatcher =
+                createTestingDispatcherBuilder()
+                        .setJobManagerRunnerFactory(jobManagerRunnerFactory)
+                        .setRecoveredJobs(Collections.singleton(recoveredJobGraph))
+                        .setDispatcherBootstrapFactory(
+                                (ignoredDispatcherGateway,
+                                        ignoredScheduledExecutor,
+                                        ignoredFatalErrorHandler) ->
+                                        new ApplicationBootstrap(
+                                                TestingApplication.builder()
+                                                        .setApplicationId(applicationId)
+                                                        .build()))
+                        .build(rpcService);
+
+        dispatcher.start();
+        dispatcher.waitUntilStarted();
+
+        // verify that the recovered job is NOT recovered immediately
+        assertThat(jobManagerRunnerFactory.getQueueSize()).isZero();
+        assertThat(dispatcher.getRecoveredJobs().containsKey(jobId)).isTrue();
+        assertThat(dispatcher.getRecoveredJobIdsByApplicationId().containsKey(applicationId))
+                .isTrue();
+
+        // call recoverJob RPC
+        final DispatcherGateway dispatcherGateway =
+                dispatcher.getSelfGateway(DispatcherGateway.class);
+        dispatcherGateway.recoverJob(jobId, TIMEOUT).get();
+
+        // verify that the job is now recovered
+        final TestingJobManagerRunner jobManagerRunner =
+                jobManagerRunnerFactory.takeCreatedJobManagerRunner();
+        assertThat(jobManagerRunner.getJobID()).isEqualTo(jobId);
+        assertThat(dispatcher.getRecoveredJobs().containsKey(jobId)).isFalse();
+        assertThat(dispatcher.getRecoveredJobIdsByApplicationId().containsKey(applicationId))
+                .isFalse();
+    }
+
+    @Test
+    public void testRecoverJobFailsWhenJobNotFound() throws Exception {
+        final JobGraph recoveredJobGraph = JobGraphTestUtils.emptyJobGraph();
+        final ApplicationID applicationId = new ApplicationID();
+        recoveredJobGraph.setApplicationId(applicationId);
+
+        dispatcher =
+                createTestingDispatcherBuilder()
+                        .setRecoveredJobs(Collections.singleton(recoveredJobGraph))
+                        .setDispatcherBootstrapFactory(
+                                (ignoredDispatcherGateway,
+                                        ignoredScheduledExecutor,
+                                        ignoredFatalErrorHandler) ->
+                                        new ApplicationBootstrap(
+                                                TestingApplication.builder()
+                                                        .setApplicationId(applicationId)
+                                                        .build()))
+                        .build(rpcService);
+
+        dispatcher.start();
+        dispatcher.waitUntilStarted();
+
+        // try to recover a job that doesn't exist
+        final JobID unknownJobId = new JobID();
+        final DispatcherGateway dispatcherGateway =
+                dispatcher.getSelfGateway(DispatcherGateway.class);
+        final CompletableFuture<Acknowledge> recoverFuture =
+                dispatcherGateway.recoverJob(unknownJobId, TIMEOUT);
+
+        assertThatThrownBy(recoverFuture::get)
+                .hasCauseInstanceOf(JobSubmissionException.class)
+                .hasMessageContaining("Cannot find the recovered job");
+    }
+
+    @Test
+    public void testRemainingRecoveredJobsCleanedWhenApplicationReachesTerminalState()
+            throws Exception {
+        final JobGraph recoveredJobGraph = JobGraphTestUtils.emptyJobGraph();
+        final JobID jobId = recoveredJobGraph.getJobID();
+        final ApplicationID applicationId = new ApplicationID();
+        recoveredJobGraph.setApplicationId(applicationId);
+
+        final TestingJobMasterServiceLeadershipRunnerFactory jobManagerRunnerFactory =
+                new TestingJobMasterServiceLeadershipRunnerFactory();
+        final TestingCleanupRunnerFactory cleanupRunnerFactory = new TestingCleanupRunnerFactory();
+
+        dispatcher =
+                createTestingDispatcherBuilder()
+                        .setJobManagerRunnerFactory(jobManagerRunnerFactory)
+                        .setCleanupRunnerFactory(cleanupRunnerFactory)
+                        .setRecoveredJobs(Collections.singleton(recoveredJobGraph))
+                        .setDispatcherBootstrapFactory(
+                                (ignoredDispatcherGateway,
+                                        ignoredScheduledExecutor,
+                                        ignoredFatalErrorHandler) ->
+                                        new ApplicationBootstrap(
+                                                TestingApplication.builder()
+                                                        .setApplicationId(applicationId)
+                                                        .build()))
+                        .build(rpcService);
+
+        dispatcher.start();
+        dispatcher.waitUntilStarted();
+
+        // verify that the recovered job exists
+        assertThat(dispatcher.getRecoveredJobs().containsKey(jobId)).isTrue();
+        assertThat(dispatcher.getRecoveredJobIdsByApplicationId().containsKey(applicationId))
+                .isTrue();
+
+        // complete the application - this should trigger cleanup of the remaining recovered job
+        dispatcher
+                .callAsyncInMainThread(
+                        () -> {
+                            dispatcher.notifyApplicationStatusChange(
+                                    applicationId, ApplicationState.FINISHED);
+                            return CompletableFuture.completedFuture(Acknowledge.get());
+                        })
+                .get();
+
+        // verify that no jobs are recovered
+        assertThat(jobManagerRunnerFactory.getQueueSize()).isZero();
+
+        // verify that the remaining recovered job is cleaned up
+        final TestingJobManagerRunner cleanupRunner =
+                cleanupRunnerFactory.takeCreatedJobManagerRunner();
+        assertThat(cleanupRunner.getJobID()).isEqualTo(jobId);
+        assertThat(dispatcher.getRecoveredJobs().containsKey(jobId)).isFalse();
+        assertThat(dispatcher.getRecoveredJobIdsByApplicationId().containsKey(applicationId))
+                .isFalse();
+    }
+
+    @Test
+    public void testJobResultNotMarkedCleanUntilApplicationTerminates() throws Exception {
+        final JobGraph jobGraph = JobGraphTestUtils.emptyJobGraph();
+        final JobID jobId = jobGraph.getJobID();
+        final ApplicationID applicationId = new ApplicationID();
+        jobGraph.setApplicationId(applicationId);
+
+        final TestingJobMasterServiceLeadershipRunnerFactory jobManagerRunnerFactory =
+                new TestingJobMasterServiceLeadershipRunnerFactory();
+
+        dispatcher =
+                createTestingDispatcherBuilder()
+                        .setJobManagerRunnerFactory(jobManagerRunnerFactory)
+                        .setDispatcherBootstrapFactory(
+                                (ignoredDispatcherGateway,
+                                        ignoredScheduledExecutor,
+                                        ignoredFatalErrorHandler) ->
+                                        new ApplicationBootstrap(
+                                                TestingApplication.builder()
+                                                        .setApplicationId(applicationId)
+                                                        .build()))
+                        .build(rpcService);
+
+        dispatcher.start();
+        dispatcher.waitUntilStarted();
+
+        // submit a job
+        final DispatcherGateway dispatcherGateway =
+                dispatcher.getSelfGateway(DispatcherGateway.class);
+        dispatcherGateway.submitJob(jobGraph, TIMEOUT).get();
+
+        // complete the job
+        final TestingJobManagerRunner jobManagerRunner =
+                jobManagerRunnerFactory.takeCreatedJobManagerRunner();
+        final ExecutionGraphInfo completedExecutionGraphInfo =
+                new ExecutionGraphInfo(
+                        new ArchivedExecutionGraphBuilder()
+                                .setJobID(jobId)
+                                .setState(JobStatus.FINISHED)
+                                .build());
+        jobManagerRunner.completeResultFuture(completedExecutionGraphInfo);
+
+        // job termination future should not be completed
+        assertThatThrownBy(
+                        () ->
+                                dispatcher
+                                        .getJobTerminationFuture(jobId, TIMEOUT)
+                                        .get(10L, TimeUnit.MILLISECONDS))
+                .isInstanceOf(TimeoutException.class);
+
+        // verify that the job result is NOT marked clean yet
+        assertThat(
+                        haServices.getJobResultStore().getDirtyResults().stream()
+                                .anyMatch(r -> r.getJobId().equals(jobId)))
+                .isTrue();
+
+        // complete the application
+        dispatcher.notifyApplicationStatusChange(applicationId, ApplicationState.FINISHED);
+
+        // wait for application termination
+        dispatcher
+                .getApplicationTerminationFuture(applicationId)
+                .get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+
+        // wait for job termination
+        dispatcher
+                .getJobTerminationFuture(jobId, TIMEOUT)
+                .get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+
+        // verify that the job result is now marked clean
+        assertThat(
+                        haServices.getJobResultStore().getDirtyResults().stream()
+                                .noneMatch(r -> r.getJobId().equals(jobId)))
+                .isTrue();
+    }
+
+    @Test
+    public void testRecoveredDirtyJobResultsCleanedOnApplicationSubmission() throws Exception {
+        final JobID jobId = new JobID();
+        final ApplicationID applicationId = new ApplicationID();
+
+        // create a dirty job result
+        final JobResult jobResult =
+                new JobResult.Builder()
+                        .jobId(jobId)
+                        .jobStatus(JobStatus.FINISHED)
+                        .netRuntime(1)
+                        .applicationId(applicationId)
+                        .build();
+
+        final TestingCleanupRunnerFactory cleanupRunnerFactory = new TestingCleanupRunnerFactory();
+
+        dispatcher =
+                createTestingDispatcherBuilder()
+                        .setCleanupRunnerFactory(cleanupRunnerFactory)
+                        .setRecoveredDirtyJobs(Collections.singleton(jobResult))
+                        .setDispatcherBootstrapFactory(
+                                (ignoredDispatcherGateway,
+                                        ignoredScheduledExecutor,
+                                        ignoredFatalErrorHandler) ->
+                                        new ApplicationBootstrap(
+                                                TestingApplication.builder()
+                                                        .setApplicationId(applicationId)
+                                                        .build()))
+                        .build(rpcService);
+
+        // verify that the dirty job result exists
+        assertThat(
+                        dispatcher
+                                .getRecoveredDirtyJobResultsByApplicationId()
+                                .containsKey(applicationId))
+                .isTrue();
+
+        // start application - this should trigger the cleanup of dirty job results
+        dispatcher.start();
+        dispatcher.waitUntilStarted();
+
+        // verify that the dirty job result was cleaned up
+        final TestingJobManagerRunner cleanupRunner =
+                cleanupRunnerFactory.takeCreatedJobManagerRunner();
+        assertThat(cleanupRunner.getJobID()).isEqualTo(jobId);
+        assertThat(
+                        dispatcher
+                                .getRecoveredDirtyJobResultsByApplicationId()
+                                .containsKey(applicationId))
+                .isFalse();
     }
 
     @Test
