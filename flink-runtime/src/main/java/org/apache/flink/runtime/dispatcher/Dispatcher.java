@@ -1613,18 +1613,22 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
     }
 
     private CompletableFuture<Acknowledge> internalShutDownCluster(
-            final ApplicationStatus applicationStatus,
-            final boolean waitForAllJobTerminationFutures) {
+            final ApplicationStatus applicationStatus, final boolean waitForAllTerminationFutures) {
         final CompletableFuture<Void> allJobsTerminationFuture =
-                waitForAllJobTerminationFutures
+                waitForAllTerminationFutures
                         ? FutureUtils.completeAll(jobManagerRunnerTerminationFutures.values())
+                        : CompletableFuture.completedFuture(null);
+
+        final CompletableFuture<Void> allApplicationsTerminationFuture =
+                waitForAllTerminationFutures
+                        ? FutureUtils.completeAll(applicationTerminationFutures.values())
                         : CompletableFuture.completedFuture(null);
 
         FutureUtils.runAfterwards(
                 allJobsTerminationFuture,
                 () ->
                         FutureUtils.runAfterwards(
-                                FutureUtils.completeAll(applicationTerminationFutures.values()),
+                                allApplicationsTerminationFuture,
                                 () -> shutDownFuture.complete(applicationStatus)));
         return CompletableFuture.completedFuture(Acknowledge.get());
     }
