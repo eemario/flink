@@ -572,8 +572,15 @@ public class PackagedProgramApplication extends AbstractApplication {
             return;
         }
 
-        final List<JobID> submittedJobIds = new ArrayList<>();
-        final List<JobID> recoveredJobIds =
+        // applicationJobIds should contain all jobs involved in the current application execution
+        // after ClientUtils.executeProgram completes, including:
+        // 1. newly submitted jobs,
+        // 2. jobs recovered from a previous execution,
+        // 3. jobs skipped because they were already in a terminal state in a previous execution.
+        // Note: This list may not include all jobs from suspendedJobIds or terminalJobIds,
+        // as the user program's execution path may differ from the previous run.
+        final List<JobID> applicationJobIds = new ArrayList<>();
+        final List<JobID> suspendedJobIds =
                 recoveredJobInfos.stream().map(JobInfo::getJobId).collect(Collectors.toList());
         final List<JobID> terminalJobIds =
                 recoveredTerminalJobInfos.stream()
@@ -587,8 +594,8 @@ public class PackagedProgramApplication extends AbstractApplication {
 
             final PipelineExecutorServiceLoader executorServiceLoader =
                     new EmbeddedExecutorServiceLoader(
-                            submittedJobIds,
-                            recoveredJobIds,
+                            applicationJobIds,
+                            suspendedJobIds,
                             terminalJobIds,
                             dispatcherGateway,
                             scheduledExecutor);
@@ -602,12 +609,12 @@ public class PackagedProgramApplication extends AbstractApplication {
                     getApplicationId(),
                     getAllRecoveredJobInfos());
 
-            if (submittedJobIds.isEmpty()) {
+            if (applicationJobIds.isEmpty()) {
                 jobIdsFuture.completeExceptionally(
                         new ApplicationExecutionException(
                                 "The application contains no execute() calls."));
             } else {
-                jobIdsFuture.complete(submittedJobIds);
+                jobIdsFuture.complete(applicationJobIds);
             }
         } catch (Throwable t) {
             // If we're running in a single job execution mode, it's safe to consider re-submission
@@ -620,7 +627,7 @@ public class PackagedProgramApplication extends AbstractApplication {
                 final JobID jobId = maybeDuplicate.get().getJobID();
                 tolerateMissingResult.add(jobId);
                 jobIdsFuture.complete(Collections.singletonList(jobId));
-            } else if (submitFailedJobOnApplicationError && submittedJobIds.isEmpty()) {
+            } else if (submitFailedJobOnApplicationError && applicationJobIds.isEmpty()) {
                 final JobID failedJobId =
                         JobID.fromHexString(
                                 configuration.get(PipelineOptionsInternal.PIPELINE_FIXED_JOB_ID));

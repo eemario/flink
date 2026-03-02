@@ -512,9 +512,6 @@ public class ArchivedExecutionGraph implements AccessExecutionGraph, Serializabl
 
         final long[] timestamps = new long[JobStatus.values().length];
         timestamps[JobStatus.INITIALIZING.ordinal()] = initializationTimestamp;
-        if (endTimestamp >= 0) {
-            timestamps[jobStatus.ordinal()] = endTimestamp;
-        }
 
         JobPlanInfo.Plan plan = new JobPlanInfo.Plan("", "", "", new ArrayList<>());
 
@@ -522,11 +519,13 @@ public class ArchivedExecutionGraph implements AccessExecutionGraph, Serializabl
         if (throwable != null) {
             Preconditions.checkState(
                     jobStatus == JobStatus.FAILED || jobStatus == JobStatus.SUSPENDED);
-            long failureTime = System.currentTimeMillis();
+            // we use the current time as the failure time if the endTimestamp is not valid
+            long failureTime = endTimestamp < 0 ? System.currentTimeMillis() : endTimestamp;
             failureInfo = new ErrorInfo(throwable, failureTime);
-            if (endTimestamp < 0) {
-                timestamps[jobStatus.ordinal()] = failureTime;
-            }
+            timestamps[jobStatus.ordinal()] = failureTime;
+        } else if (jobStatus.isGloballyTerminalState() && endTimestamp >= 0) {
+            // use the valid endTimestamp as the timestamp for the terminal state
+            timestamps[jobStatus.ordinal()] = endTimestamp;
         }
 
         return new ArchivedExecutionGraph(

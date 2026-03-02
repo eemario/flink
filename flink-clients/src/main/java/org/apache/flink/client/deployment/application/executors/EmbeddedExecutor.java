@@ -70,9 +70,9 @@ public class EmbeddedExecutor implements PipelineExecutor {
 
     public static final String NAME = "embedded";
 
-    private final Collection<JobID> submittedJobIds;
+    private final Collection<JobID> applicationJobIds;
 
-    private final Collection<JobID> recoveredJobIds;
+    private final Collection<JobID> suspendedJobIds;
 
     private final Collection<JobID> terminalJobIds;
 
@@ -107,15 +107,31 @@ public class EmbeddedExecutor implements PipelineExecutor {
                 jobClientCreator);
     }
 
+    /**
+     * Creates a {@link EmbeddedExecutor}.
+     *
+     * @param applicationJobIds a list that is going to be filled by the {@link EmbeddedExecutor}
+     *     with job ids of all jobs that are part of the current application execution. This is
+     *     essentially used to return the job ids to the caller.
+     * @param suspendedJobIds ids of jobs that are suspended from a previous application execution,
+     *     which are not supposed to be modified by the {@link EmbeddedExecutor}.
+     * @param terminalJobIds ids of jobs that are already in a terminal state in a previous
+     *     application execution, which are not supposed to be modified by the {@link
+     *     EmbeddedExecutor}.
+     * @param dispatcherGateway the dispatcher of the cluster which is going to be used to submit
+     *     jobs.
+     * @param configuration the flink application configuration
+     * @param jobClientCreator the job client creator
+     */
     public EmbeddedExecutor(
-            final Collection<JobID> submittedJobIds,
-            final Collection<JobID> recoveredJobIds,
+            final Collection<JobID> applicationJobIds,
+            final Collection<JobID> suspendedJobIds,
             final Collection<JobID> terminalJobIds,
             final DispatcherGateway dispatcherGateway,
             final Configuration configuration,
             final EmbeddedJobClientCreator jobClientCreator) {
-        this.submittedJobIds = checkNotNull(submittedJobIds);
-        this.recoveredJobIds = checkNotNull(recoveredJobIds);
+        this.applicationJobIds = checkNotNull(applicationJobIds);
+        this.suspendedJobIds = checkNotNull(suspendedJobIds);
         this.terminalJobIds = checkNotNull(terminalJobIds);
         this.dispatcherGateway = checkNotNull(dispatcherGateway);
         this.jobClientCreator = checkNotNull(jobClientCreator);
@@ -151,17 +167,18 @@ public class EmbeddedExecutor implements PipelineExecutor {
             final JobID actualJobId = streamGraph.getJobID();
             if (terminalJobIds.contains(actualJobId)) {
                 LOG.info("Job {} reached a terminal state in a previous execution.", actualJobId);
-                return getJobClientFuture(actualJobId, userCodeClassloader);
+                return addJobAndGetJobClientFuture(actualJobId, userCodeClassloader);
             }
 
-            if (recoveredJobIds.contains(actualJobId)) {
+            if (suspendedJobIds.contains(actualJobId)) {
                 final Duration timeout = configuration.get(ClientOptions.CLIENT_TIMEOUT);
                 return dispatcherGateway
                         .recoverJob(actualJobId, timeout)
                         .thenCompose(
                                 ack -> {
                                     LOG.info("Job {} is recovered successfully.", actualJobId);
-                                    return getJobClientFuture(actualJobId, userCodeClassloader);
+                                    return addJobAndGetJobClientFuture(
+                                            actualJobId, userCodeClassloader);
                                 });
             }
         }
@@ -169,9 +186,9 @@ public class EmbeddedExecutor implements PipelineExecutor {
         return submitAndGetJobClientFuture(pipeline, configuration, userCodeClassloader);
     }
 
-    private CompletableFuture<JobClient> getJobClientFuture(
+    private CompletableFuture<JobClient> addJobAndGetJobClientFuture(
             final JobID jobId, final ClassLoader userCodeClassloader) {
-        submittedJobIds.add(jobId);
+        applicationJobIds.add(jobId);
         return CompletableFuture.completedFuture(
                 jobClientCreator.getJobClient(jobId, userCodeClassloader));
     }
@@ -187,7 +204,7 @@ public class EmbeddedExecutor implements PipelineExecutor {
                 PipelineExecutorUtils.getStreamGraph(pipeline, configuration);
         final JobID actualJobId = streamGraph.getJobID();
 
-        this.submittedJobIds.add(actualJobId);
+        this.applicationJobIds.add(actualJobId);
         LOG.info("Job {} is submitted.", actualJobId);
 
         if (LOG.isDebugEnabled()) {

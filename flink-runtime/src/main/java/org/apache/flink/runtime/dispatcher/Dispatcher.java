@@ -185,9 +185,17 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
     private final OnMainThreadJobManagerRunnerRegistry jobManagerRunnerRegistry;
 
-    private final Map<JobID, ExecutionPlan> recoveredJobs = new HashMap<>();
+    /**
+     * Map of jobs that were suspended in a previous application execution attempt, which may be
+     * recovered or deprecated in the current execution attempt.
+     */
+    private final Map<JobID, ExecutionPlan> suspendedJobs = new HashMap<>();
 
-    private final Map<ApplicationID, Set<JobID>> recoveredJobIdsByApplicationId = new HashMap<>();
+    /**
+     * Map of jobs by application that were suspended in a previous application execution attempt,
+     * which may be recovered or deprecated in the current execution attempt.
+     */
+    private final Map<ApplicationID, Set<JobID>> suspendedJobIdsByApplicationId = new HashMap<>();
 
     private final Map<ApplicationID, Collection<JobResult>>
             recoveredDirtyJobResultsByApplicationId = new HashMap<>();
@@ -342,8 +350,8 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
         for (ExecutionPlan executionPlan : recoveredJobs) {
             final JobID jobId = executionPlan.getJobID();
             final ApplicationID applicationId = executionPlan.getApplicationId().orElse(null);
-            this.recoveredJobs.put(jobId, executionPlan);
-            this.recoveredJobIdsByApplicationId
+            this.suspendedJobs.put(jobId, executionPlan);
+            this.suspendedJobIdsByApplicationId
                     .computeIfAbsent(applicationId, ignored -> new HashSet<>())
                     .add(jobId);
         }
@@ -415,27 +423,27 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                         this::onFatalError);
 
         if (dispatcherBootstrap instanceof ApplicationBootstrap) {
-            checkState(!recoveredJobIdsByApplicationId.containsKey(null));
+            checkState(!suspendedJobIdsByApplicationId.containsKey(null));
 
             // defer starting recovered jobs, as they might be skipped based on user logic
             internalSubmitApplication(((ApplicationBootstrap) dispatcherBootstrap).getApplication())
                     .get();
         } else {
             Set<JobID> recoveredJobIdsWithoutApplication =
-                    recoveredJobIdsByApplicationId.remove(null);
+                    suspendedJobIdsByApplicationId.remove(null);
             if (recoveredJobIdsWithoutApplication != null) {
                 for (JobID jobId : recoveredJobIdsWithoutApplication) {
                     ApplicationID applicationId = ApplicationID.fromHexString(jobId.toHexString());
-                    recoveredJobIdsByApplicationId.put(applicationId, Collections.singleton(jobId));
+                    suspendedJobIdsByApplicationId.put(applicationId, Collections.singleton(jobId));
                 }
             }
 
             // start recovered jobs by wrapping them into a SingleJobApplication
-            for (ExecutionPlan recoveredJob : recoveredJobs.values()) {
+            for (ExecutionPlan recoveredJob : suspendedJobs.values()) {
                 runRecoveredJob(recoveredJob, true);
             }
-            recoveredJobs.clear();
-            recoveredJobIdsByApplicationId.clear();
+            suspendedJobs.clear();
+            suspendedJobIdsByApplicationId.clear();
         }
     }
 
@@ -631,7 +639,7 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                                                 jobID));
                             } else if (jobManagerRunnerRegistry.isRegistered(jobID)
                                     || submittedAndWaitingTerminationJobIDs.contains(jobID)
-                                    || recoveredJobs.containsKey(jobID)) {
+                                    || suspendedJobs.containsKey(jobID)) {
                                 // job with the given jobID is not terminated, yet
                                 return FutureUtils.completedExceptionally(
                                         DuplicateJobSubmissionException.of(jobID));
@@ -654,21 +662,21 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
         try (MdcCloseable ignored = MdcUtils.withContext(MdcUtils.asContextData(jobId))) {
             log.info("Received job recovery request for job {}.", jobId);
         }
-        final ExecutionPlan executionPlan = recoveredJobs.remove(jobId);
+        final ExecutionPlan executionPlan = suspendedJobs.remove(jobId);
         if (executionPlan == null) {
             return FutureUtils.completedExceptionally(
                     new JobSubmissionException(jobId, "Cannot find the recovered job."));
         }
 
         final ApplicationID applicationId = executionPlan.getApplicationId().orElse(null);
-        checkState(recoveredJobIdsByApplicationId.containsKey(applicationId));
+        checkState(suspendedJobIdsByApplicationId.containsKey(applicationId));
 
         runRecoveredJob(executionPlan, false);
 
-        Set<JobID> jobIds = recoveredJobIdsByApplicationId.get(applicationId);
+        Set<JobID> jobIds = suspendedJobIdsByApplicationId.get(applicationId);
         jobIds.remove(jobId);
         if (jobIds.isEmpty()) {
-            recoveredJobIdsByApplicationId.remove(applicationId);
+            suspendedJobIdsByApplicationId.remove(applicationId);
         }
 
         return CompletableFuture.completedFuture(Acknowledge.get());
@@ -717,7 +725,9 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
         application.registerStatusListener(this);
         applicationTerminationFutures.put(applicationId, new CompletableFuture<>());
 
-        // cleanup dirty job results for the application
+        // cleanup dirty job results during application submission to ensure that the JobClient is
+        // available when the application execution skips resubmitting already-terminated jobs and
+        // retrieve the JobClient directly.
         Collection<JobResult> dirtyJobResults =
                 recoveredDirtyJobResultsByApplicationId.remove(applicationId);
         if (dirtyJobResults != null) {
@@ -744,11 +754,11 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
                     "The application (" + applicationId + ") has already terminated.");
 
             AbstractApplication application = applications.get(applicationId);
-            Set<JobID> remainingRecoveredJobIds =
-                    recoveredJobIdsByApplicationId.remove(applicationId);
-            if (remainingRecoveredJobIds != null) {
-                for (JobID jobId : remainingRecoveredJobIds) {
-                    final ExecutionPlan executionPlan = recoveredJobs.remove(jobId);
+            Set<JobID> remainingSuspendedJobIds =
+                    suspendedJobIdsByApplicationId.remove(applicationId);
+            if (remainingSuspendedJobIds != null) {
+                for (JobID jobId : remainingSuspendedJobIds) {
+                    final ExecutionPlan executionPlan = suspendedJobs.remove(jobId);
                     checkNotNull(executionPlan);
 
                     final JobResult jobResult =
@@ -874,13 +884,13 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
     }
 
     @VisibleForTesting
-    Map<JobID, ExecutionPlan> getRecoveredJobs() {
-        return recoveredJobs;
+    Map<JobID, ExecutionPlan> getSuspendedJobs() {
+        return suspendedJobs;
     }
 
     @VisibleForTesting
-    Map<ApplicationID, Set<JobID>> getRecoveredJobIdsByApplicationId() {
-        return recoveredJobIdsByApplicationId;
+    Map<ApplicationID, Set<JobID>> getSuspendedJobIdsByApplicationId() {
+        return suspendedJobIdsByApplicationId;
     }
 
     @VisibleForTesting

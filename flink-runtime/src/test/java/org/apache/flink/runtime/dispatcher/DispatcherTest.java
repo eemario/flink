@@ -1208,8 +1208,8 @@ public class DispatcherTest extends AbstractDispatcherTest {
 
         // verify that the recovered job is NOT recovered immediately
         assertThat(jobManagerRunnerFactory.getQueueSize()).isZero();
-        assertThat(dispatcher.getRecoveredJobs().containsKey(jobId)).isTrue();
-        assertThat(dispatcher.getRecoveredJobIdsByApplicationId().containsKey(applicationId))
+        assertThat(dispatcher.getSuspendedJobs().containsKey(jobId)).isTrue();
+        assertThat(dispatcher.getSuspendedJobIdsByApplicationId().containsKey(applicationId))
                 .isTrue();
 
         // call recoverJob RPC
@@ -1221,8 +1221,8 @@ public class DispatcherTest extends AbstractDispatcherTest {
         final TestingJobManagerRunner jobManagerRunner =
                 jobManagerRunnerFactory.takeCreatedJobManagerRunner();
         assertThat(jobManagerRunner.getJobID()).isEqualTo(jobId);
-        assertThat(dispatcher.getRecoveredJobs().containsKey(jobId)).isFalse();
-        assertThat(dispatcher.getRecoveredJobIdsByApplicationId().containsKey(applicationId))
+        assertThat(dispatcher.getSuspendedJobs().containsKey(jobId)).isFalse();
+        assertThat(dispatcher.getSuspendedJobIdsByApplicationId().containsKey(applicationId))
                 .isFalse();
     }
 
@@ -1291,8 +1291,8 @@ public class DispatcherTest extends AbstractDispatcherTest {
         dispatcher.waitUntilStarted();
 
         // verify that the recovered job exists
-        assertThat(dispatcher.getRecoveredJobs().containsKey(jobId)).isTrue();
-        assertThat(dispatcher.getRecoveredJobIdsByApplicationId().containsKey(applicationId))
+        assertThat(dispatcher.getSuspendedJobs().containsKey(jobId)).isTrue();
+        assertThat(dispatcher.getSuspendedJobIdsByApplicationId().containsKey(applicationId))
                 .isTrue();
 
         // complete the application - this should trigger cleanup of the remaining recovered job
@@ -1312,8 +1312,8 @@ public class DispatcherTest extends AbstractDispatcherTest {
         final TestingJobManagerRunner cleanupRunner =
                 cleanupRunnerFactory.takeCreatedJobManagerRunner();
         assertThat(cleanupRunner.getJobID()).isEqualTo(jobId);
-        assertThat(dispatcher.getRecoveredJobs().containsKey(jobId)).isFalse();
-        assertThat(dispatcher.getRecoveredJobIdsByApplicationId().containsKey(applicationId))
+        assertThat(dispatcher.getSuspendedJobs().containsKey(jobId)).isFalse();
+        assertThat(dispatcher.getSuspendedJobIdsByApplicationId().containsKey(applicationId))
                 .isFalse();
     }
 

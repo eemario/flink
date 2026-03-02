@@ -194,7 +194,9 @@ class PackagedProgramApplicationITCase {
             awaitClusterStopped(cluster);
         }
 
-        // submission should succeed
+        // submission should succeed because the EmbeddedExecutor skips resubmitting jobs that were
+        // already in a terminal state in a previous application execution and instead retrieves
+        // their JobClient directly
         assertNull(ErrorHandlingSubmissionJob.getSubmissionException());
 
         assertThat(jobResultStore.hasDirtyJobResultEntryAsync(jobId).get()).isFalse();
