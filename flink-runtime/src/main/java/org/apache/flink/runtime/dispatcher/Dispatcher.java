@@ -349,7 +349,7 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
 
         for (ExecutionPlan executionPlan : recoveredJobs) {
             final JobID jobId = executionPlan.getJobID();
-            final ApplicationID applicationId = executionPlan.getApplicationId().orElse(null);
+            final ApplicationID applicationId = executionPlan.getApplicationId().orElseThrow();
             this.suspendedJobs.put(jobId, executionPlan);
             this.suspendedJobIdsByApplicationId
                     .computeIfAbsent(applicationId, ignored -> new HashSet<>())
@@ -357,7 +357,7 @@ public abstract class Dispatcher extends FencedRpcEndpoint<DispatcherId>
         }
 
         for (JobResult jobResult : recoveredDirtyJobs) {
-            final ApplicationID applicationId = jobResult.getApplicationId().orElse(null);
+            final ApplicationID applicationId = jobResult.getApplicationId().orElseThrow();
             this.recoveredDirtyJobResultsByApplicationId
                     .computeIfAbsent(applicationId, ignored -> new ArrayList<>())
                     .add(jobResult);
